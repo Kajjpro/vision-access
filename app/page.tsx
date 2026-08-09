@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import { useRouter } from "next/navigation";
 import { useCallback, useRef, useState } from "react";
 
 import { audioContext, hasClip, loadAllClips, playSequence } from "@/lib/audio";
@@ -26,13 +27,41 @@ const WalkMode = dynamic(() => import("@/components/modes/WalkMode"), {
 
 type ModeId = "walk" | "scene" | "bus" | "settings";
 
-/** Grid order is also the order the spoken menu reads them in. */
-const MODES: { id: ModeId; clip: string; label: string; ready: boolean }[] = [
-  { id: "walk", clip: "mode_walk", label: "Алхах", ready: true },
-  { id: "scene", clip: "mode_scene", label: "Юу байна?", ready: false },
-  { id: "bus", clip: "mode_bus", label: "Автобус", ready: false },
-  { id: "settings", clip: "mode_settings", label: "Тохиргоо", ready: false },
+/**
+ * Grid order is also the order the spoken menu reads them in.
+ *
+ * A mode is reached one of two ways, and the difference matters:
+ *
+ *   `route`     — a real page under app/. Entering navigates there, so the mode
+ *                 owns its own lifecycle and its cleanup runs on unmount.
+ *   `component` — rendered inline by this page. WalkMode predates the router
+ *                 split and still works this way.
+ *
+ * `ready: false` means built-but-not-here: the tile speaks its name then
+ * "тун удахгүй" and stays put. Anything with a route or a component is ready by
+ * definition, which is what stops a shipped screen from sitting behind a stale
+ * flag — the bug that left /bus/wait unreachable after it was built.
+ */
+type Mode = {
+  id: ModeId;
+  clip: string;
+  label: string;
+  route?: string;
+  component?: "walk";
+};
+
+const MODES: Mode[] = [
+  { id: "walk", clip: "mode_walk", label: "Алхах", component: "walk" },
+  { id: "scene", clip: "mode_scene", label: "Юу байна?" },
+  { id: "bus", clip: "mode_bus", label: "Автобус", route: "/bus/wait" },
+  { id: "settings", clip: "mode_settings", label: "Тохиргоо" },
 ];
+
+/** Single source of truth for "can this tile go anywhere". */
+const isReady = (m: Mode) => Boolean(m.route || m.component);
+
+/** Exported so the route smoke test can assert every tile points somewhere real. */
+export const HOME_TILE_ROUTES = MODES.filter((m) => m.route).map((m) => m.route!);
 
 const LAST_MODE_KEY = "va:lastMode";
 
@@ -42,6 +71,7 @@ function buzz(ms: number) {
 }
 
 export default function Home() {
+  const router = useRouter();
   const [active, setActive] = useState<ModeId | null>(null);
   const [audioReady, setAudioReady] = useState(false);
   const [failedClips, setFailedClips] = useState(0);
@@ -100,7 +130,7 @@ export default function Home() {
 
   const enter = useCallback((id: ModeId) => {
     const mode = MODES.find((m) => m.id === id)!;
-    if (!mode.ready) {
+    if (!isReady(mode)) {
       // CLAUDE.md: no silent failures. Name, then "тун удахгүй" — the button is
       // real, the mode simply is not built yet. Deliberately NOT the error clip:
       // that would report a fault and invite a retry that cannot ever succeed.
@@ -114,8 +144,13 @@ export default function Home() {
       // Private mode; the choice simply is not remembered.
     }
     playSequence([mode.clip].filter(hasClip), { interrupt: true });
-    setActive(id);
-  }, []);
+
+    // A routed mode navigates; only the legacy inline one is swapped in here.
+    // Before this, EVERY ready mode rendered WalkMode regardless of which tile
+    // was tapped, because `active` was never consulted.
+    if (mode.route) router.push(mode.route);
+    else setActive(id);
+  }, [router]);
 
   /**
    * Which quadrant the finger is over right now.
@@ -177,7 +212,7 @@ export default function Home() {
     if (id) enter(id);
   }
 
-  if (active) {
+  if (active === "walk") {
     return (
       <WalkMode
         onBack={() => {

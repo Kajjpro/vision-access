@@ -28,6 +28,35 @@ Project constraints below override general Next.js conventions in AGENTS.md.
   AudioContext, or the silent switch kills all warnings.
 - Create the AudioContext inside a user gesture. Keep it in a ref.
 
+## TTS providers
+
+- TTS is BUILD-TIME ONLY, behind `lib/tts/provider.ts`. Build scripts talk to
+  the interface and NEVER name a vendor. Switching is `TTS_PROVIDER=`, not a
+  refactor — we have been forced off one provider mid-build already.
+- The clip cache keys on `hash(provider + voice + text)`. Without the provider
+  and voice in the key, a switch silently mixes two voices inside one manifest;
+  a stop name in one voice then "Одоо буугаарай" in another is disorienting to
+  someone who cannot look at the screen to work out why.
+- The cache stores the PROVIDER'S OWN audio, not the encoded Opus. Re-encoding
+  at a different bitrate must never cost API quota. `--force` re-encodes;
+  `--resynthesize` is the explicit expensive one.
+- **Azure** (`mn-MN-YesuiNeural`, default) — F0 free tier, 500,000 chars/month,
+  HARD CAPPED. The build prints cumulative usage against that allowance and
+  aborts rather than exceeding it. Azure expands numerals and reads Latin
+  itself, so stop names go through `toSpeechText()` only.
+- **Chimege** — kept as an implementation, not deleted. Free tier stops at 100
+  requests; the project token is currently suspended (403). Accepts Cyrillic
+  plus `? ! . - ' " : ,` and 400s on digits, slashes and Latin, so it needs the
+  `data/number-words.json` rewrite that Azure does not.
+- **MMS** (`facebook/mms-tts-mon`) — local Python fallback, zero cost, no
+  network. **Licensed CC-BY-NC 4.0: non-commercial use only.** Its Mongolian
+  dialect quality is UNVERIFIED — MMS is trained on religious-recording corpora
+  and the register may not match how a UB passenger expects a stop name to
+  sound. Insurance against losing Azure, not a shipping choice.
+- Display text and spoken text are ALWAYS different fields. Routes have
+  `displayName` / `spokenName`; stops have `name` and `toSpeechText(name)`.
+  Never send a display string to an engine, and never fall back to one.
+
 ## Safety
 
 - This app supplements a white cane. It never replaces one.
