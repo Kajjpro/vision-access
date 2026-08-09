@@ -32,9 +32,17 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# ...except the template, which documents the vars and holds no secrets.
+!.env.example
 
 # vercel
 .vercel
+
+# transit build pipeline — regenerated from the Hamuga API, never committed.
+# probe-output/ holds raw API samples (key-redacted, but still not ours to ship);
+# .cache/ holds raw responses so dev re-runs skip the network.
+/probe-output
+/.cache
 
 # typescript
 *.tsbuildinfo

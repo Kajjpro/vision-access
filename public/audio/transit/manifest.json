@@ -1,0 +1,1642 @@
+{
+  "bus_you_are_at": {
+    "path": "/audio/transit/bus_you_are_at.opus",
+    "durationMs": 1590,
+    "sha": "ad1547f3102e2da759a7d98102ab5ae947a958e1428e691b7cdd7e3d78bae531",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "bus_at_stop_suffix": {
+    "path": "/audio/transit/bus_at_stop_suffix.opus",
+    "durationMs": 1720,
+    "sha": "607ef5e16fae55a79fecc92b7e0317d71eada66e519169dc36347b7491b326a3",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "bus_stops_remaining": {
+    "path": "/audio/transit/bus_stops_remaining.opus",
+    "durationMs": 1700,
+    "sha": "d50e83daae8407f1e0e03009999f7c005be7f70f2f8ba1725e53054b0c98842a",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "bus_next_stop": {
+    "path": "/audio/transit/bus_next_stop.opus",
+    "durationMs": 1650,
+    "sha": "3cdbb6965dcca48189069c909babe3732ae635423af9aac059e923e32a95149d",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "bus_get_ready": {
+    "path": "/audio/transit/bus_get_ready.opus",
+    "durationMs": 1610,
+    "sha": "c4a6abd87c861fe32200735d89e85b81b4f204e9aa09fbb68324c87279f7ea2c",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "bus_get_off_now": {
+    "path": "/audio/transit/bus_get_off_now.opus",
+    "durationMs": 1790,
+    "sha": "719bd0c8ca32fceb865dc444b6d30330501384abae3cecb39e1972981e54e810",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "bus_passed_stop": {
+    "path": "/audio/transit/bus_passed_stop.opus",
+    "durationMs": 2080,
+    "sha": "31897197f6ce1eb26fa767ed7960f623d9f71b7c828de25e5570611b85b274cd",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "bus_location_unavailable": {
+    "path": "/audio/transit/bus_location_unavailable.opus",
+    "durationMs": 2060,
+    "sha": "b59759859dfedb826934bde0227f7a0118522218353e35e3205fa6323d3f6264",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "bus_no_stop_nearby": {
+    "path": "/audio/transit/bus_no_stop_nearby.opus",
+    "durationMs": 2360,
+    "sha": "2bd566d0d561f73ae38d0916cba4aafc20db86da7d8c9da67ee5b0ede10e28a1",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "bus_approx_prefix": {
+    "path": "/audio/transit/bus_approx_prefix.opus",
+    "durationMs": 1580,
+    "sha": "5226e0733371b65ed747b54ce659476fac0ee258768871f9d24f8a9e334a3254",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "bus_minutes_suffix": {
+    "path": "/audio/transit/bus_minutes_suffix.opus",
+    "durationMs": 1630,
+    "sha": "f88917e0d2ad7c2e011433ea20e17855764d62061786326178bfafbef8ef3d16",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "bus_unnamed_stop": {
+    "path": "/audio/transit/bus_unnamed_stop.opus",
+    "durationMs": 1640,
+    "sha": "049e8b60583ec197f4e83f227398bf34ee3d46db75ede88d2e2e48fc3235c1fe",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "num_1": {
+    "path": "/audio/transit/num_1.opus",
+    "durationMs": 1600,
+    "sha": "49ac450039f18582e7d00f5a238215e70819934690a0e41149c1b00a75e57f6d",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "num_2": {
+    "path": "/audio/transit/num_2.opus",
+    "durationMs": 1580,
+    "sha": "12318ca16046439baa25d5191c8165d61b8ed73c9e796ccb2ad44e43f20ede68",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "num_3": {
+    "path": "/audio/transit/num_3.opus",
+    "durationMs": 1600,
+    "sha": "bc3596facaffffbb1946ba707b9b4211b00ec44ee08575427f527b83b292bf0b",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "num_4": {
+    "path": "/audio/transit/num_4.opus",
+    "durationMs": 1630,
+    "sha": "097be8a53dcd02342350fc21561f6c95cec57faf9142470e884d9ac38524d7f1",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "num_5": {
+    "path": "/audio/transit/num_5.opus",
+    "durationMs": 1600,
+    "sha": "603c0b32bcfb8aac21553123e40b9c4abcc2d61088209b72dcacb9c3d041bd84",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "num_6": {
+    "path": "/audio/transit/num_6.opus",
+    "durationMs": 1590,
+    "sha": "875a34cb9065658f4aed5d1c39bf07a2b962124a29b44e80a1a4a4f89a567ecd",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "num_7": {
+    "path": "/audio/transit/num_7.opus",
+    "durationMs": 1600,
+    "sha": "d5a80231a3cb43e7eebe85f82cb9439b52ca45c00f292242cb7ae4e1e9e23302",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "num_8": {
+    "path": "/audio/transit/num_8.opus",
+    "durationMs": 1590,
+    "sha": "20bda5d5c590f9d445b6cc2f094c57241eb23c08f40eb4a08cbc8fedbb9e7e20",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "num_9": {
+    "path": "/audio/transit/num_9.opus",
+    "durationMs": 1600,
+    "sha": "9e5fe6c7090366d79b245a745e400093386746d1a06a5dcb2b86ad08bf3ba0a4",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "num_10": {
+    "path": "/audio/transit/num_10.opus",
+    "durationMs": 1230,
+    "sha": "e1d058ac806940cb1831890f341a5d4b4fcbd824959c3320205a7f9383b67ab6",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "num_11": {
+    "path": "/audio/transit/num_11.opus",
+    "durationMs": 1590,
+    "sha": "56ccb2babe04a869097a117d8e525aa0ca8d8ef72baa5267e51716e61dc16d24",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "num_12": {
+    "path": "/audio/transit/num_12.opus",
+    "durationMs": 1570,
+    "sha": "923184b8822ee589fe8678231350a4265057010a4391112b0076a8df9b53c0de",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "num_13": {
+    "path": "/audio/transit/num_13.opus",
+    "durationMs": 1570,
+    "sha": "d70b98e35739ca00b3ab784228b26a39ad5a51693c69398f1ece945ade1f08f2",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "num_14": {
+    "path": "/audio/transit/num_14.opus",
+    "durationMs": 1510,
+    "sha": "57de0a649fa2a5902fadb8cd4d39bb61d2722d726f566c7a93653160a4323865",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "num_15": {
+    "path": "/audio/transit/num_15.opus",
+    "durationMs": 1580,
+    "sha": "506b341dce0739f6c28c7cc6f49d3cd1e917acb0b256e5a699097cfcabb972bf",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "num_16": {
+    "path": "/audio/transit/num_16.opus",
+    "durationMs": 1580,
+    "sha": "edddc1c0fc9e8ebdcd9e6953f3ce4a05f3d73e9ff7a23656482de5a426f97ec9",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "num_17": {
+    "path": "/audio/transit/num_17.opus",
+    "durationMs": 1580,
+    "sha": "0dcae45f689e09b39b47a4da11457888fe3cd7c2cede968302be2546848b58be",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "num_18": {
+    "path": "/audio/transit/num_18.opus",
+    "durationMs": 1570,
+    "sha": "223b68eba95b7f533702df00f8a731952275d67c90a1b1051cddf81f11ac5ef0",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "num_19": {
+    "path": "/audio/transit/num_19.opus",
+    "durationMs": 1580,
+    "sha": "99ce1e3c751e04070a30a563275a9040e5dd8e07fcc38ba02b37c4b4b76d1a92",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "num_20": {
+    "path": "/audio/transit/num_20.opus",
+    "durationMs": 1580,
+    "sha": "54ee00a89b4642243a8ae358c66c86f84c69e1688c805c9399f25b97b8d7ef60",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "num_21": {
+    "path": "/audio/transit/num_21.opus",
+    "durationMs": 1430,
+    "sha": "ede3f877549e8cd17088a5f69aeaa3daa437eb9577d9596d3ac07711580ed8a4",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "num_22": {
+    "path": "/audio/transit/num_22.opus",
+    "durationMs": 1570,
+    "sha": "04f08acbbc2e045dfe33bda5b981a823799b1aa4c19a2392dd2edc3d496818cd",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "num_23": {
+    "path": "/audio/transit/num_23.opus",
+    "durationMs": 1550,
+    "sha": "b1c7bbb4c2e1e488d1eb794b4d0edb126017f8cbba2059e0e57119b5a682870e",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "num_24": {
+    "path": "/audio/transit/num_24.opus",
+    "durationMs": 1570,
+    "sha": "38a3ccbcfe56ccab4acd6fdf6584051ab74d55e9478ea70403029358147a7cec",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "num_25": {
+    "path": "/audio/transit/num_25.opus",
+    "durationMs": 1560,
+    "sha": "db76d6bc2b3e8d1f1e98584730f9a2c86b39a0fe2672864c54650f82602c60de",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "num_26": {
+    "path": "/audio/transit/num_26.opus",
+    "durationMs": 1570,
+    "sha": "0cc190188e87e2f36ecec2c09815fd282b907b6d9b0b1297b3a577f694b8ddd5",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "num_27": {
+    "path": "/audio/transit/num_27.opus",
+    "durationMs": 1570,
+    "sha": "afd6775182289fa54b80bbffe8423675c14e0c9206a6e7d0b8b4bc13cd7a2a26",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "num_28": {
+    "path": "/audio/transit/num_28.opus",
+    "durationMs": 1550,
+    "sha": "aeb8860d9604ffa96554f30b23fb87276c3425b3d68b63d4269c1ababeb8dd88",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "num_29": {
+    "path": "/audio/transit/num_29.opus",
+    "durationMs": 1570,
+    "sha": "f2706d336c2f55ced10a4f974e12a42edcfd9802d7ed482a0a396599e9030e74",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "num_30": {
+    "path": "/audio/transit/num_30.opus",
+    "durationMs": 1600,
+    "sha": "9ab0921281e106392487767c687bc0712c2472e87f9799fd4856b4344db673d7",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "num_31": {
+    "path": "/audio/transit/num_31.opus",
+    "durationMs": 1600,
+    "sha": "bb368aaf28113a12afc835be89a24b5096f3631711d5e9704a3712b92c52d003",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "num_32": {
+    "path": "/audio/transit/num_32.opus",
+    "durationMs": 1570,
+    "sha": "170b76aab893bf40570fe997a73616d74d6663666105c184c5db281af0f9fe01",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "num_33": {
+    "path": "/audio/transit/num_33.opus",
+    "durationMs": 1480,
+    "sha": "ead3349cf91354e8cbe68ffbd53b2dec2d19aee77e993b9dae003749caebc35a",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "num_34": {
+    "path": "/audio/transit/num_34.opus",
+    "durationMs": 1600,
+    "sha": "ed467e6941a698ca6949b0ce164ef99cd32a7472f8cd26b96703052d00049f6b",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "num_35": {
+    "path": "/audio/transit/num_35.opus",
+    "durationMs": 1600,
+    "sha": "6ecac3d910bed39935f50b1dae0c102f782fa7c1847b844a94b7a05055fe84a6",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "num_36": {
+    "path": "/audio/transit/num_36.opus",
+    "durationMs": 1610,
+    "sha": "a4d576abc604dcb5bdccbeabfd56c5375d101d3b1fd62f6cefb8e8495e3e17b1",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "num_37": {
+    "path": "/audio/transit/num_37.opus",
+    "durationMs": 1610,
+    "sha": "2fb40656d8455bac20c3a8c0d6189f29bbfbd4c0de9f0deca81f52dff878f548",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "num_38": {
+    "path": "/audio/transit/num_38.opus",
+    "durationMs": 1570,
+    "sha": "58ebcfcd45c534f78d5265cdaed4199b7a04c81fd423a6eb3485837596a44f9c",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "num_39": {
+    "path": "/audio/transit/num_39.opus",
+    "durationMs": 1600,
+    "sha": "35982febd49363eb4ce571874e93484e2b01b9bc5ca7612bfaee2d2390d60a4b",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "num_40": {
+    "path": "/audio/transit/num_40.opus",
+    "durationMs": 1590,
+    "sha": "3e33d014c1143b0b804e6e7cc75d506d8c4a5d11d53cdde888af8ea298b62155",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000005": {
+    "path": "/audio/transit/stop_000000005.opus",
+    "durationMs": 1700,
+    "sha": "4a6f3a33565411fe4725d5a71b4e234faa380744c22874b74e00388d3718e7cc",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000006": {
+    "path": "/audio/transit/stop_000000006.opus",
+    "durationMs": 1650,
+    "sha": "b2522167237b25ce05fa3bbbbb9a58c97def794fe43f5b4d65238d4bcc0bd3a4",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000007": {
+    "path": "/audio/transit/stop_000000007.opus",
+    "durationMs": 1700,
+    "sha": "71108c5fb28bf1ccf09e32fec30dc42da80f28ab9fcab2e8e2a43454c7006285",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000008": {
+    "path": "/audio/transit/stop_000000008.opus",
+    "durationMs": 2140,
+    "sha": "ed9bf88fb764eca2082e3efcfa53dd7d18611d4f6bc8a75eb00b19db60b8799c",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000009": {
+    "path": "/audio/transit/stop_000000009.opus",
+    "durationMs": 1690,
+    "sha": "489f01eebed24f37047b3bf1859f2489600de28382317d55e1d177f728629bd4",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000010": {
+    "path": "/audio/transit/stop_000000010.opus",
+    "durationMs": 2200,
+    "sha": "6fa5c4fc1b32dc4203972c02dce78ef277c402e93248b9e9c34993f25b92e3a7",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000011": {
+    "path": "/audio/transit/stop_000000011.opus",
+    "durationMs": 2170,
+    "sha": "b2f9d6e1fd7e1ab57f158a3d91871b8812aecccaf6630f52c120d0d7d9ea51fc",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000018": {
+    "path": "/audio/transit/stop_000000018.opus",
+    "durationMs": 2500,
+    "sha": "f6be1eb301e9d2962e1f7613b69b8cc943713810b8ffcff8aef0cdf3a7b8372c",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000019": {
+    "path": "/audio/transit/stop_000000019.opus",
+    "durationMs": 1600,
+    "sha": "fdbf7632b6c03d7d386a4974d18b2a9173d54971c5b9c19c3603e233bdbd7b9e",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000020": {
+    "path": "/audio/transit/stop_000000020.opus",
+    "durationMs": 1620,
+    "sha": "385749eca20ee95afed5248319bf7a377999597aac4401eaf94c0d828a197866",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000021": {
+    "path": "/audio/transit/stop_000000021.opus",
+    "durationMs": 1590,
+    "sha": "967e0df228f3d69797e71161760d66ed80c9e87bc2498b65cd382ece273e07de",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000037": {
+    "path": "/audio/transit/stop_000000037.opus",
+    "durationMs": 2340,
+    "sha": "a25a15a5e5040615e06299525a566aaddb6d22d1cd8391fab4098465e87bb98e",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000038": {
+    "path": "/audio/transit/stop_000000038.opus",
+    "durationMs": 2290,
+    "sha": "7739c68e983135813640af09a26c1b4685c9ca0c479b262921aa64bbfa672df9",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000039": {
+    "path": "/audio/transit/stop_000000039.opus",
+    "durationMs": 2210,
+    "sha": "069a962acdb4bcbf6288df71594d164eb1c992373a27bfee9edef7830f30857b",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000040": {
+    "path": "/audio/transit/stop_000000040.opus",
+    "durationMs": 2200,
+    "sha": "4d237c836be85f636f9552acaf08eabc00c64060a545b814504b3e1b02132f20",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000041": {
+    "path": "/audio/transit/stop_000000041.opus",
+    "durationMs": 1990,
+    "sha": "0905e5534a750f40633e545a157d272e3828505a00d73ad6a6ff02759f31fd4f",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000042": {
+    "path": "/audio/transit/stop_000000042.opus",
+    "durationMs": 1810,
+    "sha": "9b9aba4f57336a47aef0964a1790656b90e09db7c8121f1bd3486f33bc09e3bb",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000043": {
+    "path": "/audio/transit/stop_000000043.opus",
+    "durationMs": 1960,
+    "sha": "f818c824fbfa869553b64ba78662a2abc857d548baaf8375d441e98bf72fdc3d",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000044": {
+    "path": "/audio/transit/stop_000000044.opus",
+    "durationMs": 1990,
+    "sha": "b3834dc5b217a51200ae050c77d94c8b5fcd75404ee4761da3c5f64c7395ea96",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000145": {
+    "path": "/audio/transit/stop_000000145.opus",
+    "durationMs": 2100,
+    "sha": "cbd25112df8b3395ab897b575a4c095e2df751b6cfc44409e3793940d18e2350",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000161": {
+    "path": "/audio/transit/stop_000000161.opus",
+    "durationMs": 1890,
+    "sha": "c6dfe13d27835d1afa61da8781903c2d50858c5e68d8c122711588479bfe1964",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000162": {
+    "path": "/audio/transit/stop_000000162.opus",
+    "durationMs": 1900,
+    "sha": "5df4cfe3cf9f4b357a7566ad752e29f7cb59a7c24487e233eb748f7c917b2ee6",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000163": {
+    "path": "/audio/transit/stop_000000163.opus",
+    "durationMs": 1810,
+    "sha": "4989a7212baec3d3befda92bff3eedb015b7c02feca58b3b176ec50afd0324ad",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000164": {
+    "path": "/audio/transit/stop_000000164.opus",
+    "durationMs": 2720,
+    "sha": "be850d92e81f166a92f90bec6229913d6773821089be5f9a44fd70c6a9bfbb87",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000165": {
+    "path": "/audio/transit/stop_000000165.opus",
+    "durationMs": 2200,
+    "sha": "3ee82a44d0fc2d84c6df24cc5f882e2a2e729a25c03f7777f4cb46a8ef5ae584",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000166": {
+    "path": "/audio/transit/stop_000000166.opus",
+    "durationMs": 2110,
+    "sha": "7ab7a8edf613aa6568c262634849a445b3d4d3c47c0ccdb6e26ebdfa5856b684",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000167": {
+    "path": "/audio/transit/stop_000000167.opus",
+    "durationMs": 1770,
+    "sha": "44e36cf930e8e49e0470ca94297a6c2f7655c33c1361db7bcfa3c4c30160fc08",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000168": {
+    "path": "/audio/transit/stop_000000168.opus",
+    "durationMs": 1770,
+    "sha": "13c79a04961de1b90d3093e26f87a125f24590204554aa1b33efc2de7095bbb3",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000176": {
+    "path": "/audio/transit/stop_000000176.opus",
+    "durationMs": 1610,
+    "sha": "ea3d06758f9a7ea380825a95e67c1403fcbcd49a646190a448355a5a00868f0e",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000177": {
+    "path": "/audio/transit/stop_000000177.opus",
+    "durationMs": 1580,
+    "sha": "e4f4831ac986489eede20614d1eff3e6232f0a571bdc484610ac9f7027286e08",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000182": {
+    "path": "/audio/transit/stop_000000182.opus",
+    "durationMs": 2070,
+    "sha": "3d800f7edb4472f07a24024859fa30078405504306fc14e1a1ffcde16e90701b",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000201": {
+    "path": "/audio/transit/stop_000000201.opus",
+    "durationMs": 2210,
+    "sha": "5c86f4b0366aeb81f72a1b3e5e5108ad71e6233a709d9c8cee9a01efe66f4b71",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000240": {
+    "path": "/audio/transit/stop_000000240.opus",
+    "durationMs": 1840,
+    "sha": "76def282cbd143cde3014f473847456bfdc7f53e2105246516b3a2c81d7a5856",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000241": {
+    "path": "/audio/transit/stop_000000241.opus",
+    "durationMs": 1870,
+    "sha": "cdd293d5d7155a776d0ed87ee09375482053ba906a4f139b3b61ec21d302a689",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000242": {
+    "path": "/audio/transit/stop_000000242.opus",
+    "durationMs": 1910,
+    "sha": "06f461b088c9c10f9dff210b498c9e5bc80b9e9b6e86efa05a2dbb81beaaf698",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000243": {
+    "path": "/audio/transit/stop_000000243.opus",
+    "durationMs": 1930,
+    "sha": "04afb9d33e207dbf26004ee226ce2e0997399f08cc66c591601dad717d759a17",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000244": {
+    "path": "/audio/transit/stop_000000244.opus",
+    "durationMs": 1820,
+    "sha": "041709412ba2f7762561fe859dee6e7a663793c1c5844cb4feb78be7faef99f3",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000245": {
+    "path": "/audio/transit/stop_000000245.opus",
+    "durationMs": 1840,
+    "sha": "b62618dfe9605ff972ea87aae4f7592f7604e8ace08b2cc3ad39fef8f9016891",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000246": {
+    "path": "/audio/transit/stop_000000246.opus",
+    "durationMs": 1810,
+    "sha": "564086c874adb2341e15edebf9c21f938a92cf7b035b9818d24a8507a65e0e57",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000247": {
+    "path": "/audio/transit/stop_000000247.opus",
+    "durationMs": 1830,
+    "sha": "ca7d5206ee703a5046ca1c02aa0f4cc30bb0a7b4d61d1f92426bcb5754572194",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000260": {
+    "path": "/audio/transit/stop_000000260.opus",
+    "durationMs": 1760,
+    "sha": "0d4ffaf97897231a34248f9b0ddffe911f8c4affa451e55271d6cdc04bd6e8c5",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000261": {
+    "path": "/audio/transit/stop_000000261.opus",
+    "durationMs": 1750,
+    "sha": "a10b7b282c4bebf1045ed75533701285ba9ebbbd8dfc212256baabb25b26e58d",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000262": {
+    "path": "/audio/transit/stop_000000262.opus",
+    "durationMs": 2220,
+    "sha": "7d0555ae641cd382f9290f6e843bbbd4005bf2107459d2ec5553968a7ba756cf",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000263": {
+    "path": "/audio/transit/stop_000000263.opus",
+    "durationMs": 2320,
+    "sha": "9eb4a5a359db03f3b50456b53d47935f04201a6b89a5bcc23d34b1520e04f988",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000264": {
+    "path": "/audio/transit/stop_000000264.opus",
+    "durationMs": 2240,
+    "sha": "05402e76b5c57da352eb0eb05533bb60a38a3865f2e140eb1ead90a13df4a46a",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000265": {
+    "path": "/audio/transit/stop_000000265.opus",
+    "durationMs": 2240,
+    "sha": "ca56704abb082516bf499f23153a727e51e343299e3ab41d77ce47dc0ead958e",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000266": {
+    "path": "/audio/transit/stop_000000266.opus",
+    "durationMs": 2360,
+    "sha": "7ebfa7ce480c3f70a5aa6977f566a9d5ea2aaa8d26d4c09508b62c4279266286",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000267": {
+    "path": "/audio/transit/stop_000000267.opus",
+    "durationMs": 2410,
+    "sha": "39431ad96f79ee6d803ceefc2f31d4db45b27aeb3cfbe046c3deee963fb53b89",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000268": {
+    "path": "/audio/transit/stop_000000268.opus",
+    "durationMs": 2310,
+    "sha": "2e8c1e95f451dbd527cccff69280349ae7dcf072e3bb1a74abe8a1ac15bf2b5c",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000269": {
+    "path": "/audio/transit/stop_000000269.opus",
+    "durationMs": 2360,
+    "sha": "f3d332379bff26bb1f792b8fb50cea96d036b04a87d86e40ddc3b206708513f9",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000279": {
+    "path": "/audio/transit/stop_000000279.opus",
+    "durationMs": 2070,
+    "sha": "085dc2060f59ffb0f8fd688593b89ad5fef7cd2296fdc20cd6da4f0877991fb9",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000281": {
+    "path": "/audio/transit/stop_000000281.opus",
+    "durationMs": 2130,
+    "sha": "3ee895e530c6a56c3048e2003f8f3af67b0a7c2766d799e49bb38f51948153ea",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000282": {
+    "path": "/audio/transit/stop_000000282.opus",
+    "durationMs": 1950,
+    "sha": "451a1832cf8b8f874e66f71496515635ead100b0cbb0b5b4d869d66cbae36a3f",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000283": {
+    "path": "/audio/transit/stop_000000283.opus",
+    "durationMs": 2250,
+    "sha": "aef36f3a9fbf0ff64b8397628e4e072851b94118032f86d6e5b5237ea9cdb7f9",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000290": {
+    "path": "/audio/transit/stop_000000290.opus",
+    "durationMs": 2250,
+    "sha": "5872016d937c3c0653cd2eb2cb0a2d9803fa1d6d1fe9282bcd20192ef0166a05",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000292": {
+    "path": "/audio/transit/stop_000000292.opus",
+    "durationMs": 2420,
+    "sha": "ebe9ff4ef77fb31b32bde08151fb1a96cf8040ea66b8938393502330490d961a",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000294": {
+    "path": "/audio/transit/stop_000000294.opus",
+    "durationMs": 2090,
+    "sha": "3b931ffcc5db768dd28173f3a85c4c42eea51820dab1accd011b2886cafdf555",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000305": {
+    "path": "/audio/transit/stop_000000305.opus",
+    "durationMs": 1920,
+    "sha": "508abe7cc1d9597446f3143341f30faa98ab26c6087513ffd8d538dfe6513ed7",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000306": {
+    "path": "/audio/transit/stop_000000306.opus",
+    "durationMs": 2410,
+    "sha": "a5026bb6cbde5d3c2221d1e4b636d4345695f1dff1d235b42d2fb360ea8291d1",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000307": {
+    "path": "/audio/transit/stop_000000307.opus",
+    "durationMs": 2310,
+    "sha": "faabe157ca0e2eb2fdcc9d6275e7971017b65d0f507deaf3da8f0455d75c6945",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000313": {
+    "path": "/audio/transit/stop_000000313.opus",
+    "durationMs": 2400,
+    "sha": "3e62488ed89780b0e81247af7d5354d14d2bdb6c18a301c0d9cb2f4e1f9f5474",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000314": {
+    "path": "/audio/transit/stop_000000314.opus",
+    "durationMs": 2380,
+    "sha": "2fcb7928ba9ed3a854fce0e68f5ac3ca4d18d5f10e4249629422cdf7992bb1dd",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000330": {
+    "path": "/audio/transit/stop_000000330.opus",
+    "durationMs": 1620,
+    "sha": "06767313c7ea95b349f7404c1cf956d5152efe06e9b4c74ad1b770d98d5580af",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000332": {
+    "path": "/audio/transit/stop_000000332.opus",
+    "durationMs": 1750,
+    "sha": "1114d4fcad4b0f36aeac27a57cceabc25e69d6a45b52a41a75a7de98cf2f8922",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000333": {
+    "path": "/audio/transit/stop_000000333.opus",
+    "durationMs": 1760,
+    "sha": "0d7af38662319e5e8ac6ccf4ef44f3201c7461e3cba49945b1051efbc38a5577",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000362": {
+    "path": "/audio/transit/stop_000000362.opus",
+    "durationMs": 1580,
+    "sha": "ff491c568d2fd559180ebcec6a405cc48d863d19b56661ce32ee387e594193bd",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000363": {
+    "path": "/audio/transit/stop_000000363.opus",
+    "durationMs": 1510,
+    "sha": "c58487d93e53b091c8fed3cb2341f519190748a8c0ce9a2d0af28ea080361ca2",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000369": {
+    "path": "/audio/transit/stop_000000369.opus",
+    "durationMs": 1760,
+    "sha": "86caf0b2083315e06486c594729688a9bb4872b678af440b7278bc75210c8816",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000370": {
+    "path": "/audio/transit/stop_000000370.opus",
+    "durationMs": 1900,
+    "sha": "c25cf3158d62576eb6d6ccf7c738b5e86650116f86fa8391bf0f444e0f469a81",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000371": {
+    "path": "/audio/transit/stop_000000371.opus",
+    "durationMs": 1930,
+    "sha": "f61b95641fa8a6b1a780eb8d2d9b935fb0c8dcc487455e8bfaed9239d0d3c1ff",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000372": {
+    "path": "/audio/transit/stop_000000372.opus",
+    "durationMs": 1960,
+    "sha": "1463114bb35bb80c782d606da0c49c2755d2e995f975eb120d6db2e88ec9ca08",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000373": {
+    "path": "/audio/transit/stop_000000373.opus",
+    "durationMs": 2010,
+    "sha": "2b3966a80ea138d7a320e5ad1ac1b5130a62fe159e6155a738826d298e120c5c",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000374": {
+    "path": "/audio/transit/stop_000000374.opus",
+    "durationMs": 1940,
+    "sha": "cc1874906ae7ae8caeec4b85fcdc8da821ab3ba768ef9c70c06838e1a0b14147",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000375": {
+    "path": "/audio/transit/stop_000000375.opus",
+    "durationMs": 2190,
+    "sha": "bbb4ad628848d78b95f45313b4743745f879f071ccf057bf1047f1bcced9c49a",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000376": {
+    "path": "/audio/transit/stop_000000376.opus",
+    "durationMs": 2190,
+    "sha": "cfcb77dfa65204c5189df16f387645a90f4245f43a5efb7d7def8b4b4ebbe00d",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000377": {
+    "path": "/audio/transit/stop_000000377.opus",
+    "durationMs": 1940,
+    "sha": "3e94d0b8af4de6f7b5b175115b17af777a4f1e3912e06b010ea601cd3051ccde",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000378": {
+    "path": "/audio/transit/stop_000000378.opus",
+    "durationMs": 1940,
+    "sha": "54c7200a19e4d478d81ab478d7fd584172a57b9d7302f0f160e8d00ea0d6b398",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000379": {
+    "path": "/audio/transit/stop_000000379.opus",
+    "durationMs": 2190,
+    "sha": "7fea45cda0acaad19b2cda371ca2a62259b50f7e59cef458fb13eea94f685fd2",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000380": {
+    "path": "/audio/transit/stop_000000380.opus",
+    "durationMs": 2210,
+    "sha": "f1c5901c076c11e435ab3286446d88cd3cf8eecbdd4c1354d450c5b2067e5d02",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000416": {
+    "path": "/audio/transit/stop_000000416.opus",
+    "durationMs": 1840,
+    "sha": "5bfadf5f84eaeef11403fe594bed843278f60d8b018345b99e234f95d79144ba",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000417": {
+    "path": "/audio/transit/stop_000000417.opus",
+    "durationMs": 1860,
+    "sha": "c99b108839c94613a4847ef873eec227b34e77816153268fbd09f644954f89be",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000418": {
+    "path": "/audio/transit/stop_000000418.opus",
+    "durationMs": 2220,
+    "sha": "8a4f677b576b22392e048472b49b5812df60a5441d5373c2e51868e9916fb1ee",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000419": {
+    "path": "/audio/transit/stop_000000419.opus",
+    "durationMs": 2180,
+    "sha": "f17b074f133a2cecafc94258f8ec891309e916423a6e17f41af3b7edbfb0c640",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000420": {
+    "path": "/audio/transit/stop_000000420.opus",
+    "durationMs": 2710,
+    "sha": "97bce23bc45e9b02c75d272c33ed4cf295f2dd608e2015f6c39edc5447ac4d30",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000421": {
+    "path": "/audio/transit/stop_000000421.opus",
+    "durationMs": 2230,
+    "sha": "6c95cef07159049721691787e424f5570681dc16d1bfaf73c888e50e5685b976",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000422": {
+    "path": "/audio/transit/stop_000000422.opus",
+    "durationMs": 2230,
+    "sha": "9d13cbe60c5deea7998eda79eef9cff11b1ac9b5e3dafa4fd004fa878e543d1b",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000423": {
+    "path": "/audio/transit/stop_000000423.opus",
+    "durationMs": 2260,
+    "sha": "9745a6fce059a91f85fd457d6fee28730667c58ade0d136cc2ce9cc3f10bd76b",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000441": {
+    "path": "/audio/transit/stop_000000441.opus",
+    "durationMs": 2140,
+    "sha": "f899b6af983f05a17eb589d95bf4c026d152c007abc75604830c208f6da807d8",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000466": {
+    "path": "/audio/transit/stop_000000466.opus",
+    "durationMs": 2110,
+    "sha": "ba38c9c344589d5ad9ff265ecbc7b34580def944fbb1c886fae28b3d4f068c4a",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000467": {
+    "path": "/audio/transit/stop_000000467.opus",
+    "durationMs": 2150,
+    "sha": "91caa56daaec94266ca98f53e3ab638396107240dfa7ddf8ae1f5f27b5893784",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000541": {
+    "path": "/audio/transit/stop_000000541.opus",
+    "durationMs": 2400,
+    "sha": "2f4f913a933c8fe6317bc456f3bfdfe950eaae503d5846b3ce41648b8a4b9e22",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000543": {
+    "path": "/audio/transit/stop_000000543.opus",
+    "durationMs": 2340,
+    "sha": "1ade74e5d6b384f86a00f77812948a322ede2522e3c962e27794ab5a32da0e22",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000555": {
+    "path": "/audio/transit/stop_000000555.opus",
+    "durationMs": 1870,
+    "sha": "010eaa4730b90088e135b96a73aedb3fa6161e3e0395e4bc247063b77fbca3b1",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000557": {
+    "path": "/audio/transit/stop_000000557.opus",
+    "durationMs": 2390,
+    "sha": "8b14f025e0ba8780a6aacb6bfa00d5b33313e00a03384f5485175a42d87e85f9",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000558": {
+    "path": "/audio/transit/stop_000000558.opus",
+    "durationMs": 1600,
+    "sha": "4fe8deb85a483672710b577ddd9f07df77f7b40205a7a2f3bda41b35413bb512",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000559": {
+    "path": "/audio/transit/stop_000000559.opus",
+    "durationMs": 1600,
+    "sha": "1def5781d02801724bb34eb763d2ea8b6946ed15d46720335a9d6deaf3734881",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000585": {
+    "path": "/audio/transit/stop_000000585.opus",
+    "durationMs": 1580,
+    "sha": "d67fca3aee3466482d45ce70fd92d4a18b6b376a6c75b7a27d3933258ca1ccd3",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000615": {
+    "path": "/audio/transit/stop_000000615.opus",
+    "durationMs": 2390,
+    "sha": "c53ec94cd31ecd4897b16d2eb348770605d788230f1523a7e47cdde0dc5c0e91",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000618": {
+    "path": "/audio/transit/stop_000000618.opus",
+    "durationMs": 2010,
+    "sha": "75a4b58b5af5b0950bad51aefb9551511265531c519a9f0a9cf4b45dd1d62b22",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000628": {
+    "path": "/audio/transit/stop_000000628.opus",
+    "durationMs": 1860,
+    "sha": "2c1fa6a5a4af0df9911b25a9e93f0d51460e3c4f6f2a61e6c9a40dbe8d76a9b1",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000629": {
+    "path": "/audio/transit/stop_000000629.opus",
+    "durationMs": 1860,
+    "sha": "7f973b0743ad473957263fe4d1a32ef393c0bcc399d528eb72c811c13fcf4cfb",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000636": {
+    "path": "/audio/transit/stop_000000636.opus",
+    "durationMs": 1800,
+    "sha": "41941c6d4555ef55eeada4036638d3997c318d4b6ccc6062e068aa6918593976",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000672": {
+    "path": "/audio/transit/stop_000000672.opus",
+    "durationMs": 1810,
+    "sha": "adf0061be8998e251c20156fe3546807ff91d659c6d9ddff56eac39840ef8fdd",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000702": {
+    "path": "/audio/transit/stop_000000702.opus",
+    "durationMs": 2470,
+    "sha": "9c0b27d3f7b491b923dd22b1804aa13d7d6bfd9ebeff3260c4d608baa2e20661",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000756": {
+    "path": "/audio/transit/stop_000000756.opus",
+    "durationMs": 1670,
+    "sha": "03bf4c0223428cd52b1e0e93c19655a177bc6ab6166be1a81d915d93a741817e",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000757": {
+    "path": "/audio/transit/stop_000000757.opus",
+    "durationMs": 1730,
+    "sha": "5cc8aa510ebf340bf69848f5c417a784461ad8264255362c9e0b5200c582dac8",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000762": {
+    "path": "/audio/transit/stop_000000762.opus",
+    "durationMs": 2530,
+    "sha": "10ebf419b33ed5a5047bb77d18023de485ac9325d40e98731f4ff087d409655f",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000763": {
+    "path": "/audio/transit/stop_000000763.opus",
+    "durationMs": 2500,
+    "sha": "ecdf0c5c2a26d0f65ce0c8599e830f6c904af3f0eae52d2a42eb1c63a831ed97",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000764": {
+    "path": "/audio/transit/stop_000000764.opus",
+    "durationMs": 2160,
+    "sha": "7a8516dbf0c067d8c921629b0734b0125391bf870f37d6db5dcd3592cd80fb91",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000765": {
+    "path": "/audio/transit/stop_000000765.opus",
+    "durationMs": 2140,
+    "sha": "6b44a9dfd340a4309428bac393434d566080b8ddca0e09b456acfd37d0b78be6",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000766": {
+    "path": "/audio/transit/stop_000000766.opus",
+    "durationMs": 1590,
+    "sha": "c9b08356118bdb7d52727179e252c78ff9d63180f06736b30280f7141fe48ddc",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000767": {
+    "path": "/audio/transit/stop_000000767.opus",
+    "durationMs": 1610,
+    "sha": "2f0e75a60414939f03f3b6216c13c1c1fca92a6674fbc92e93d4dcc5b0f07164",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000768": {
+    "path": "/audio/transit/stop_000000768.opus",
+    "durationMs": 2020,
+    "sha": "ee49a10a3fe138025da84b2b156dda6a339a3b1b24aae1ef33f3f12989137044",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000769": {
+    "path": "/audio/transit/stop_000000769.opus",
+    "durationMs": 2050,
+    "sha": "10ade00652987dbf9a3d87e824b66599511abcbd07f7f9ecbd2b0859973e62d1",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000770": {
+    "path": "/audio/transit/stop_000000770.opus",
+    "durationMs": 2260,
+    "sha": "8087bbb4505487c920fbe5a9a3706af217ec5e957c5fd7f953d93f8a738d7b4a",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000900": {
+    "path": "/audio/transit/stop_000000900.opus",
+    "durationMs": 2320,
+    "sha": "296a6ddb423779da020162aed48917239976ead67922dd06f08d3c9640285cc8",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000901": {
+    "path": "/audio/transit/stop_000000901.opus",
+    "durationMs": 1850,
+    "sha": "4f7dcf5293a9cf25865ac555c13fa7149f0f274f0598ea2ab1c6419334218b05",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000000902": {
+    "path": "/audio/transit/stop_000000902.opus",
+    "durationMs": 1860,
+    "sha": "9e2ce4a22fc762eedd45361ae61f903016c7f4dd7018eedb138f712641a69007",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000001244": {
+    "path": "/audio/transit/stop_000001244.opus",
+    "durationMs": 2140,
+    "sha": "8d7e7f396456bdc49bdc80f0a2994edde2ee48a73a79928d235a67ef064d57fe",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000001254": {
+    "path": "/audio/transit/stop_000001254.opus",
+    "durationMs": 2230,
+    "sha": "38b48d58ec4e184119ea8188546f958943c828e36f564d47270db02b77138f14",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000001255": {
+    "path": "/audio/transit/stop_000001255.opus",
+    "durationMs": 2180,
+    "sha": "d24e63638e520c7490d679c3bea04e9346008d01bef3fd6ac2ba843419a7afd7",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000001256": {
+    "path": "/audio/transit/stop_000001256.opus",
+    "durationMs": 2360,
+    "sha": "c8caf241c068b8b76a52da7b4b1d586afd3f6771a30e698ea4d242913bab7029",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000001257": {
+    "path": "/audio/transit/stop_000001257.opus",
+    "durationMs": 2300,
+    "sha": "2018604586c14957cf3dc251219c438d057076ef1fde2ac2c2df7cbf9f221e96",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000001258": {
+    "path": "/audio/transit/stop_000001258.opus",
+    "durationMs": 2340,
+    "sha": "66fd7e06fb9621b39e31a491401e1ba456020c3d9e039c63389e8df1dbe48c7b",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000001292": {
+    "path": "/audio/transit/stop_000001292.opus",
+    "durationMs": 2050,
+    "sha": "fa279cfdf3fbcbc1e83a739089da0c97a0d0359574197915bed57b7806c33e1e",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000001293": {
+    "path": "/audio/transit/stop_000001293.opus",
+    "durationMs": 1980,
+    "sha": "97630f06deed4aab3dae74070d8ab12f1ecd240034b35d8b89ef54ff0fec9807",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000001342": {
+    "path": "/audio/transit/stop_000001342.opus",
+    "durationMs": 2250,
+    "sha": "d7d87b7d2de3bf6b06d2fd41f5e3b8d0aaf06a030f1c8ce5de2ac974e607b1c9",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000001362": {
+    "path": "/audio/transit/stop_000001362.opus",
+    "durationMs": 2170,
+    "sha": "df6b9fc92bc98d1f55c16bbf8229667ff4c05011369b1281425d1c46b7b03a67",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000001363": {
+    "path": "/audio/transit/stop_000001363.opus",
+    "durationMs": 2190,
+    "sha": "efb9b0dcfb2c421f1a14996de37b368f3de46a06bd40b4cfde73ba97b6c08b7d",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000001396": {
+    "path": "/audio/transit/stop_000001396.opus",
+    "durationMs": 1570,
+    "sha": "4b2950408da7d3c7ee98b80dbfe615f6bafd66de1d2c1d9c1118d522558982df",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000001437": {
+    "path": "/audio/transit/stop_000001437.opus",
+    "durationMs": 1820,
+    "sha": "ef177f15c8c39e6daf13b56d2d2976e8cbd847092500d12a50b15c8dfbd3b207",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000001443": {
+    "path": "/audio/transit/stop_000001443.opus",
+    "durationMs": 2180,
+    "sha": "09804b1ef6fe64262071c157e55128a47baa505838d955988bdc96cb81bcd55e",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000001444": {
+    "path": "/audio/transit/stop_000001444.opus",
+    "durationMs": 2210,
+    "sha": "0649fda7fb19f425845f163975c0312506b8ac4f5a6713aa906864c93b3a4830",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000001466": {
+    "path": "/audio/transit/stop_000001466.opus",
+    "durationMs": 2030,
+    "sha": "e0b05149b9eda875c85641a6c25841cc70363673be17480c5b9b9a064bf7af8d",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000001467": {
+    "path": "/audio/transit/stop_000001467.opus",
+    "durationMs": 2010,
+    "sha": "065ad84c1c2009518bf31d6fee88e2be728c5caa5635ccfc19495e2114c945b3",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000001546": {
+    "path": "/audio/transit/stop_000001546.opus",
+    "durationMs": 2090,
+    "sha": "6f2c2399831700c3cb541761c0ba53a03d3da7fded9e42a4fd0001a9060aefed",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000001547": {
+    "path": "/audio/transit/stop_000001547.opus",
+    "durationMs": 2060,
+    "sha": "25fdf6b374c65fd8e2629b2b1497fdfbf46c44a8ccfeb67471837c225214ac43",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000001548": {
+    "path": "/audio/transit/stop_000001548.opus",
+    "durationMs": 2160,
+    "sha": "c1f97734477d4a6752ad3a2f08034d3ef14c0fcd2e71e06af69acb504a4dbc6f",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000001549": {
+    "path": "/audio/transit/stop_000001549.opus",
+    "durationMs": 2140,
+    "sha": "a5f9a16f118e3f68bb06c88cd160db858d0535ac5c70c49493e9620a701be665",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000002437": {
+    "path": "/audio/transit/stop_000002437.opus",
+    "durationMs": 1800,
+    "sha": "10dba6e7f83170577eea31d9b541814ab182464c28b5c1817298c6dfe1d866fc",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000002561": {
+    "path": "/audio/transit/stop_000002561.opus",
+    "durationMs": 1900,
+    "sha": "a86ef59393b1c290e47b14234d6516b9839053f27b8fe019ef7455820b23cc56",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000017001": {
+    "path": "/audio/transit/stop_000017001.opus",
+    "durationMs": 1700,
+    "sha": "6eb59c15e04138768b9122e869a2bd2fe4357f83421fc7e2207dd9b9b30fa831",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000017127": {
+    "path": "/audio/transit/stop_000017127.opus",
+    "durationMs": 2210,
+    "sha": "284d69a9211be3210d6d530801a7ab350372efadea865b05b8827d0ae5f901a2",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000017128": {
+    "path": "/audio/transit/stop_000017128.opus",
+    "durationMs": 2240,
+    "sha": "461c48e5f692e24564761fb3388da005849e1a30c705d93a80bc31668dabfe2b",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000017129": {
+    "path": "/audio/transit/stop_000017129.opus",
+    "durationMs": 2410,
+    "sha": "77915993b7f760912e049135fc7a6e8aaf26aaebb612863cab171abf296617cf",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000018129": {
+    "path": "/audio/transit/stop_000018129.opus",
+    "durationMs": 2410,
+    "sha": "afb231808aa5842201fa9f435e827f52e0204df62bd71b81a067c6df1f31c7f9",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000019547": {
+    "path": "/audio/transit/stop_000019547.opus",
+    "durationMs": 1820,
+    "sha": "9fb6ec77df4dbba34cc64e95ad58f87af93eeda506d7f7c7195483b908f0c026",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_000019548": {
+    "path": "/audio/transit/stop_000019548.opus",
+    "durationMs": 1770,
+    "sha": "ccc571ad4757c904b9d7e33ffc1d519a475492b00775e23872e8d380483ca53c",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_100000032": {
+    "path": "/audio/transit/stop_100000032.opus",
+    "durationMs": 2050,
+    "sha": "163a3795c481362605fcad6fb1bdf022d5cf41ee0c293f003641e32549a9a7ca",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_100000331": {
+    "path": "/audio/transit/stop_100000331.opus",
+    "durationMs": 1640,
+    "sha": "f0035c17edae5b53b5a4d2927c317f41d30d96a008b0bb35a057e1faa12844a5",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_12700000": {
+    "path": "/audio/transit/stop_12700000.opus",
+    "durationMs": 2470,
+    "sha": "d94379cedd0f0dc3e469e3038aa51d7bd59960fc4c2f4ffcf515a0f423cad76b",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_12800000": {
+    "path": "/audio/transit/stop_12800000.opus",
+    "durationMs": 2500,
+    "sha": "0e294d2a54929a9bfb87c48c8dc7530b0f6ff4d37ea7fea9c98b31160eb77159",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "stop_12900000": {
+    "path": "/audio/transit/stop_12900000.opus",
+    "durationMs": 1640,
+    "sha": "38dcd28264923fd8a60ab81dcf2a3d6a0072b741b0d4b6c8e4cd8c3ca3d810e9",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  }
+}
