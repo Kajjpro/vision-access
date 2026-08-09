@@ -1,0 +1,12 @@
+# Build-time only. None of this ships to the browser -- the app runs the
+# exported .onnx through onnxruntime-web and nothing else.
+#
+#   python3 -m venv model/.venv && source model/.venv/bin/activate
+#   pip install -r model/requirements.txt
+#
+# Pulls torch: ~2.5 GB on disk, several minutes on first install.
+
+ultralytics>=8.3.150   # YOLOE support (set_classes / get_text_pe)
+onnx>=1.16
+onnxslim>=0.1.48       # ultralytics uses this for export(simplify=True)
+onnxruntime>=1.18      # verifies the export's tensor signature

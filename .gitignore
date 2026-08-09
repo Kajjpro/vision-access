@@ -41,3 +41,13 @@ yarn-error.log*
 next-env.d.ts
 
 certificates
+
+# model build environment — build-time only, never shipped.
+# classes.txt and the scripts ARE tracked; the venv and weights are not.
+/model/.venv
+/model/*.pt
+/model/*.onnx
+/model/samples
+# ultralytics downloads checkpoints and the 572 MB MobileCLIP text encoder into cwd
+/*.pt
+/mobileclip_*.ts
