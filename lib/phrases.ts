@@ -189,6 +189,52 @@ export const PHRASES: Phrase[] = [
   { id: "bus_is", mn: "автобус", en: "bus is", kind: "ui" },
   { id: "unclear", mn: "Тодорхойгүй", en: "unclear", kind: "ui" },
   { id: "try_again", mn: "Дахин оролдоно уу", en: "try again", kind: "ui" },
+
+  // ---- Gesture UI and first-run tutorial -------------------------------
+  // Rendered by scripts/render-ui-audio.ts as WAV, not Opus: these are the
+  // first sounds a new user ever hears, and iOS Safari decodes WAV natively
+  // while its Ogg Opus support is unreliable. Short and few, so the bytes
+  // are not worth a compatibility risk.
+
+  { id: "ui_where_am_i", mn: "Та одоо энд байна:", en: "You are here:", kind: "ui" },
+  { id: "ui_list_wrapped", mn: "Жагсаалтын эхэнд буцлаа.", en: "Back to the start of the list.", kind: "ui" },
+  { id: "ui_no_options", mn: "Сонголт алга байна.", en: "There are no options.", kind: "ui" },
+  { id: "ui_screen_home", mn: "Үндсэн цэс", en: "Main menu", kind: "ui" },
+  { id: "ui_screen_wait", mn: "Автобус хүлээх", en: "Waiting for a bus", kind: "ui" },
+  { id: "ui_screen_ride", mn: "Автобусанд явж байна", en: "Riding the bus", kind: "ui" },
+  { id: "ui_screen_destination", mn: "Хаана буух вэ", en: "Where are you getting off", kind: "ui" },
+  { id: "ui_list_recent_heading", mn: "Сүүлд явсан", en: "Recently travelled", kind: "ui" },
+  { id: "ui_list_frequent_heading", mn: "Байнга явдаг", en: "Frequently travelled", kind: "ui" },
+  { id: "ui_list_all_stops_heading", mn: "Бүх буудал", en: "All stops", kind: "ui" },
+  { id: "ui_list_position_joiner", mn: "дахь", en: "-th", kind: "ui" },
+  { id: "ui_list_position_of", mn: "-оос", en: "of", kind: "ui" },
+  { id: "ui_list_jumped_five", mn: "5-р буудал", en: "5 stops on", kind: "ui" },
+  { id: "ui_list_stops_after", mn: "буудлын дараа", en: "stops later", kind: "ui" },
+  { id: "ui_wait_find_stop", mn: "Буудлаа олох", en: "Find my stop", kind: "ui" },
+  { id: "ui_wait_locating", mn: "Байршил тодорхойлж байна", en: "Finding your location", kind: "ui" },
+  { id: "ui_wait_confirm_stop", mn: "Тийм, энэ буудал", en: "Yes, this stop", kind: "ui" },
+  { id: "ui_wait_other_stop", mn: "Өөр буудал", en: "A different stop", kind: "ui" },
+  { id: "ui_wait_which_route", mn: "Аль чиглэлээр явах вэ?", en: "Which route are you taking?", kind: "ui" },
+  { id: "ui_wait_time_unknown", mn: "хугацаа тодорхойгүй", en: "time unknown", kind: "ui" },
+  { id: "ui_voice_listening", mn: "Сонсож байна", en: "Listening", kind: "ui" },
+  { id: "ui_voice_confirm_suffix", mn: "руу явах уу?", en: "… are you going to?", kind: "ui" },
+  { id: "ui_voice_not_understood", mn: "Ойлгосонгүй. Дахин оролдоно уу.", en: "I did not understand. Please try again.", kind: "ui" },
+  { id: "ui_voice_unavailable", mn: "Дуу хоолойгоор оруулах боломжгүй байна", en: "Voice input is unavailable", kind: "ui" },
+  { id: "ui_pos_top_left", mn: "зүүн дээд", en: "top left", kind: "ui" },
+  { id: "ui_pos_top_right", mn: "баруун дээд", en: "top right", kind: "ui" },
+  { id: "ui_pos_bottom_left", mn: "зүүн доод", en: "bottom left", kind: "ui" },
+  { id: "ui_pos_bottom_right", mn: "баруун доод", en: "bottom right", kind: "ui" },
+  { id: "ui_ride_manual_advance", mn: "Нэг буудал өнгөрлөө", en: "One stop has passed", kind: "ui" },
+  { id: "ui_ride_finish", mn: "Дуусгах", en: "Finish", kind: "ui" },
+  { id: "ui_welcome", mn: "Харааны Хандалт. Дээш доош шударч сонголтоо сонсоно уу. Хоёр удаа товшиж сонгоно уу.", en: "Vision Access. Swipe up or down to hear the options. Double-tap to choose.", kind: "ui" },
+  { id: "ui_back", mn: "Буцлаа", en: "Went back", kind: "ui" },
+  { id: "ui_voice_prompt", mn: "Хаашаа явах вэ? Буудлын нэрээ хэлнэ үү.", en: "Where are you going? Say the name of the stop.", kind: "ui" },
+  { id: "ui_voice_did_you_say", mn: "Та ингэж хэлсэн үү:", en: "Did you say:", kind: "ui" },
+  { id: "ui_voice_confirm_hint", mn: "Тийм бол хоёр удаа товшино уу. Үгүй бол дээш шудрана уу.", en: "If yes, double-tap. If no, swipe up.", kind: "ui" },
+  { id: "ui_voice_no_match", mn: "Тийм нэртэй буудал олдсонгүй.", en: "No stop found with that name.", kind: "ui" },
+  { id: "ui_wait_searching", mn: "Буудлыг хайж байна", en: "Looking for your stop", kind: "ui" },
+  { id: "ui_wait_say_destination", mn: "Хаашаа явахаа хэлэх", en: "Say where you are going", kind: "ui" },
+  { id: "ui_wait_browse_routes", mn: "Чиглэлүүдийг сонсох", en: "Hear the routes", kind: "ui" },
 ];
 
 /** Model class order. An index into this IS the classId in the ONNX export. */

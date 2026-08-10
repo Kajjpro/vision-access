@@ -43,6 +43,8 @@ export type TransitMeta = {
 /** public/audio/transit/manifest.json */
 export type AudioManifestEntry = {
   path: string;
+  /** iOS-safe AAC twin — Safari cannot be relied on to decode Ogg Opus. */
+  pathAac?: string;
   durationMs: number;
   sha: string;
   provider?: string;

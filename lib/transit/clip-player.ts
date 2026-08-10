@@ -16,10 +16,31 @@ export class ManifestClipPlayer implements ClipPlayer {
   private buffers = new Map<string, AudioBuffer>();
   private current: AudioBufferSourceNode | null = null;
 
+  /**
+   * Whether this browser can be trusted with Ogg Opus.
+   *
+   * Safari — every iOS browser, since they all use WebKit — either rejects Ogg
+   * Opus outright or decodes it inconsistently by version. Rather than sniff the
+   * user agent, ask the browser what it can play and fall back to the AAC twin.
+   * A stop name that fails to decode is a stop announced as silence, which reads
+   * to the rider as "not yet".
+   */
+  private preferAac = (() => {
+    if (typeof document === "undefined") return false;
+    const probe = document.createElement("audio");
+    // canPlayType returns "" for "definitely not"; Safari returns "" for Ogg Opus.
+    return probe.canPlayType('audio/ogg; codecs="opus"') === "";
+  })();
+
   constructor(
     private manifest: AudioManifest,
     private ctx: AudioContext,
   ) {}
+
+  /** The URL this device should actually fetch for a clip. */
+  private urlFor(entry: { path: string; pathAac?: string }): string {
+    return this.preferAac && entry.pathAac ? entry.pathAac : entry.path;
+  }
 
   has(key: string): boolean {
     return this.buffers.has(key);
@@ -51,7 +72,7 @@ export class ManifestClipPlayer implements ClipPlayer {
           return;
         }
         try {
-          const res = await fetch(entry.path);
+          const res = await fetch(this.urlFor(entry));
           if (!res.ok) throw new Error(String(res.status));
           this.buffers.set(key, await this.ctx.decodeAudioData(await res.arrayBuffer()));
         } catch {
