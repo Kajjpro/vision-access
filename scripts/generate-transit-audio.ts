@@ -96,6 +96,22 @@ const OPUS_ARGS = [
 ];
 
 /**
+ * An iOS-safe twin of every clip.
+ *
+ * Safari's Ogg Opus support is unreliable — `decodeAudioData` can simply reject
+ * — and a bus rider whose stop names silently fail to decode is exactly the
+ * user this app exists for. AAC in an MP4 container is decoded natively by
+ * every iOS version we target.
+ *
+ * Both variants are shipped; the client picks at runtime. 32 kbps AAC is a
+ * little larger than 16 kbps Opus, but it is only paid by devices that need it.
+ */
+const AAC_ARGS = [
+  "-af", TRIM_FILTER,
+  "-c:a", "aac", "-b:a", "32k", "-ac", "1", "-ar", "24000", "-movflags", "+faststart",
+];
+
+/**
  * `--force` re-ENCODES from cached provider audio; it does not re-synthesize.
  * Changing the bitrate or the trim filter must never cost API characters —
  * that is the entire reason the cache holds the provider's audio rather than
@@ -133,6 +149,8 @@ type Clip = {
 
 type ManifestEntry = {
   path: string;
+  /** iOS-safe AAC twin. Safari's Ogg Opus decoding is unreliable. */
+  pathAac?: string;
   durationMs: number;
   sha: string;
   provider?: string;
@@ -145,6 +163,12 @@ const clipHash = (provider: TtsProvider, text: string) =>
   createHash("sha256").update(`${provider.name}\n${provider.voice}\n${text}`, "utf8").digest("hex");
 
 // ------------------------------------------------------------------ encode
+
+async function toAac(srcPath: string, dest: string): Promise<void> {
+  await execFileAsync(ffmpegPath as unknown as string, [
+    "-hide_banner", "-loglevel", "error", "-y", "-i", srcPath, ...AAC_ARGS, dest,
+  ]);
+}
 
 async function toOpus(srcPath: string, dest: string): Promise<void> {
   // Encodes from a FILE, not a pipe: promisify(execFile) has no `input` option
@@ -403,8 +427,10 @@ async function main() {
         rendered++;
       }
       await toOpus(cacheFile, dest);
+      await toAac(cacheFile, dest.replace(/\.opus$/, ".m4a"));
       manifest[clip.key] = {
         path: `/${rel}`,
+        pathAac: `/${rel.replace(/\.opus$/, ".m4a")}`,
         durationMs: await probeDurationMs(dest),
         sha: hash,
         provider: provider.name,

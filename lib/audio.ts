@@ -66,15 +66,31 @@ export function loadedCount(): number {
 export async function loadAllClips(
   onProgress?: (loaded: number, total: number) => void,
 ): Promise<{ ok: string[]; failed: string[] }> {
+  return loadClips(undefined, onProgress);
+}
+
+/**
+ * Loads a SUBSET, or everything when `ids` is omitted.
+ *
+ * The subset form exists because decoding all 123 clips is ~9 MB of WAV, and
+ * on a phone that is many seconds during which the app cannot say a word —
+ * indistinguishable, to someone who cannot see it, from an app that is broken.
+ * Screens load the few clips they need to speak first, then the rest behind.
+ */
+export async function loadClips(
+  ids?: string[],
+  onProgress?: (loaded: number, total: number) => void,
+): Promise<{ ok: string[]; failed: string[] }> {
   const context = audioContext();
   const ok: string[] = [];
   const failed: string[] = [];
+  const wanted = ids ? PHRASES.filter((p) => ids.includes(p.id)) : PHRASES;
 
   await Promise.all(
-    PHRASES.map(async (phrase) => {
+    wanted.map(async (phrase) => {
       if (buffers.has(phrase.id)) {
         ok.push(phrase.id);
-        onProgress?.(ok.length, PHRASES.length);
+        onProgress?.(ok.length, wanted.length);
         return;
       }
       try {
@@ -85,10 +101,62 @@ export async function loadAllClips(
       } catch {
         failed.push(phrase.id);
       }
-      onProgress?.(ok.length, PHRASES.length);
+      onProgress?.(ok.length, wanted.length);
     }),
   );
 
+  return { ok, failed };
+}
+
+/**
+ * Loads transit clips (stop and route names) into the SAME buffer map.
+ *
+ * These live in public/audio/transit as Opus with an AAC twin, separate from
+ * the WAV UI clips, because there are ~900 of them and size matters. Sharing
+ * the buffer map means playSequence can interleave a stop name with fixed
+ * phrases without knowing where any of them came from.
+ *
+ * Format is chosen per device: Safari — every iOS browser — cannot be relied on
+ * to decode Ogg Opus, and a stop name that fails to decode is announced as
+ * silence, which a rider reads as "not yet".
+ */
+let transitManifest: Record<string, { path: string; pathAac?: string }> | null = null;
+
+const preferAac = (() => {
+  if (typeof document === "undefined") return false;
+  return document.createElement("audio").canPlayType('audio/ogg; codecs="opus"') === "";
+})();
+
+export async function loadTransitClips(ids: string[]): Promise<{ ok: string[]; failed: string[] }> {
+  const context = audioContext();
+  const ok: string[] = [];
+  const failed: string[] = [];
+
+  if (!transitManifest) {
+    try {
+      transitManifest = await fetch("/audio/transit/manifest.json").then((r) => r.json());
+    } catch {
+      // No manifest yet (nothing rendered). Callers degrade to fixed phrases.
+      transitManifest = {};
+    }
+  }
+
+  await Promise.all(
+    ids.map(async (id) => {
+      if (buffers.has(id)) { ok.push(id); return; }
+      const entry = transitManifest![id];
+      if (!entry) { failed.push(id); return; }
+      try {
+        const url = preferAac && entry.pathAac ? entry.pathAac : entry.path;
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(String(res.status));
+        buffers.set(id, await context.decodeAudioData(await res.arrayBuffer()));
+        ok.push(id);
+      } catch {
+        failed.push(id);
+      }
+    }),
+  );
   return { ok, failed };
 }
 

@@ -1,0 +1,38 @@
+<!doctype html>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>mn-MN speech recognition test</title>
+<style>body{font:18px system-ui;padding:20px;max-width:640px;margin:auto}
+button{display:block;width:100%;min-height:88px;font-size:22px;margin:14px 0;border-radius:12px}
+pre{background:#111;color:#0f0;padding:14px;border-radius:8px;white-space:pre-wrap;font-size:14px}</style>
+<h1>mn-MN recognition test</h1>
+<p>Open this on the target <b>Android phone in Chrome</b> and press the button. It reports whether
+Chrome's speech engine accepts Mongolian. Needs a network connection — recognition is server-side.</p>
+<button id="go">Test mn-MN</button>
+<button id="go-en">Test en-US (control)</button>
+<pre id="out">ready</pre>
+<script>
+const out = document.getElementById("out");
+const log = (m) => { out.textContent += "\n" + m; };
+function probe(lang) {
+  out.textContent = "testing " + lang + "…";
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) return log("RESULT: SpeechRecognition API not present at all");
+  const r = new SR();
+  r.lang = lang; r.continuous = false; r.interimResults = true;
+  let got = false;
+  for (const ev of ["start","audiostart","soundstart","speechstart","speechend","audioend","end"])
+    r["on"+ev] = () => log("event: " + ev);
+  r.onresult = (e) => { got = true; log("HEARD: " + JSON.stringify(e.results[0][0].transcript) + " (confidence " + e.results[0][0].confidence + ")"); };
+  r.onerror = (e) => {
+    log("ERROR: " + e.error);
+    if (e.error === "language-not-supported") log("RESULT: " + lang + " is NOT SUPPORTED");
+    else if (e.error === "no-speech") log("RESULT: engine accepted " + lang + " but heard nothing — say a word and retry");
+    else if (e.error === "not-allowed") log("RESULT: microphone permission denied — grant it and retry");
+    else if (e.error === "network") log("RESULT: network required and unavailable");
+  };
+  r.onend = () => log(got ? "RESULT: " + lang + " WORKS" : "(ended)");
+  try { r.start(); log("started — say a Mongolian place name, e.g. Сансар"); } catch (e) { log("throw: " + e); }
+}
+document.getElementById("go").onclick = () => probe("mn-MN");
+document.getElementById("go-en").onclick = () => probe("en-US");
+</script>
