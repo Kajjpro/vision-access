@@ -18,7 +18,7 @@
 
 import type { Announcement } from "../transit/audio-queue";
 import {
-  createEngine, isDowngrade, onFix, onTick, remainingTo,
+  createEngine, isDowngrade, onFix, onTick, remainingForAlighting,
   type EngineEvent, type EngineState, type Fix,
 } from "./engine";
 import { StopChainGeometry, type GeometryStop } from "./geometry";
@@ -97,14 +97,18 @@ export function simulateJourney(options: SimulateOptions): SimulationResult {
       haptic: announcement.haptic,
       priority: announcement.priority,
       stopIndex: state.stopIndex,
-      remaining: remainingTo(state, destinationIndex),
+      remaining: remainingForAlighting(state, destinationIndex),
       confidence: state.confidence,
       label: announcement.label ?? "",
     });
   };
 
   const speakLadder = (now: number) => {
-    const remaining = remainingTo(state, destinationIndex);
+    /**
+     * The ALIGHTING view of the count, not the raw one. At the destination the
+     * raw count reaches zero only 40 m past the stop; see the accessor.
+     */
+    const remaining = remainingForAlighting(state, destinationIndex);
     const announcement = alightingAnnouncement(
       { remaining, confidence: state.confidence, destination, now },
       lastSpokenRemaining,
