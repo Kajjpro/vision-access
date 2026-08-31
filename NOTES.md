@@ -92,6 +92,41 @@ the classes so the two cannot drift.
 Not blocked on: the capture UI, which will be the same tap → 3 frames →
 decide → speak shape as BusMode.
 
+## The wrong-direction threshold cannot be retuned on synthetic data
+
+`WRONG_DIRECTION_SPACINGS` ships at 1.0 with `WRONG_DIRECTION_SUSTAIN_FIXES` at
+10. That pair measured 0 false positives over 146 correct-direction journeys and
+fired on 60 of 60 wrong-direction ones — but **both corpora are `gps-sim.ts`
+traces with zero-mean 25 m noise, and that is not what Ulaanbaatar GPS does.**
+
+`lib/countdown/geometry.ts` records the reason the whole projection design
+exists: drift in the canyon around Sükhbaatar Square exceeds a block. That drift
+is larger than 25 m and it is not zero-mean — it is a systematic pull in the
+direction of the reflecting facade. Neither property is in the simulator, so the
+measured 0/146 is a floor, not the real rate. The true false-positive rate is
+above zero and the case for holding at 1.0 is therefore STRONGER than the sweep
+suggests, not weaker.
+
+**Do not lower K on the strength of the latency table below.** What the table
+prices is the cost of the threshold on the positive side; what it cannot price
+is the cost on the negative side, because the negative corpus is synthetic.
+
+| K | true-fire | rider travels first | false-fire (synthetic) |
+|---|---|---|---|
+| 0.30 | 60/60 | 201 m / 30 s | 8 |
+| 0.50 | 60/60 | 295 m / 45 s | 4 |
+| 0.75 | 60/60 | 484 m / 69 s | 2 |
+| 1.00 | 60/60 | 623 m / 95 s | 0 |
+
+Note also that true-fire saturates at every K, which is structural rather than
+reassuring: a bus on a diverging chain accumulates backward displacement without
+bound, so any finite threshold is crossed eventually. Detection rate cannot
+discriminate between these rows; only latency and the false-positive rate can.
+
+Retuning needs a RECORDED trace — real fixes from a phone on a real route, fed
+through `gps-sim.ts`'s trace format into the same two harnesses. Until one
+exists, 1.0 stands.
+
 ## Deferred: return-route guidance after an overshoot
 
 When a rider misses their stop the app now says they have passed it, adds one
