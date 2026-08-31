@@ -260,6 +260,33 @@ export function announceStopSummary(
  * name finishing after the doors close is worth nothing. Every case carries a
  * dedupeKey so a burst of position updates cannot queue the same line twice.
  */
+/**
+ * HOW LONG EACH RUNG STAYS SAID.
+ *
+ * `dedupeKey` alone only collapses copies still waiting in the queue; once one
+ * has been spoken, nothing suppresses the next without a cooldown. The ladder's
+ * previous-to-current comparison normally prevents a repeat, but it is state
+ * held by a screen — and a remount, a resumed session, or confidence flapping
+ * across a rung boundary all re-invoke this with that state lost. Then the rider
+ * hears "хоёр буудал" twice for one stop, which teaches them the count is
+ * unreliable at exactly the moment it matters.
+ *
+ * The count is monotonic within a journey, so no rung legitimately fires twice
+ * against one destination, and these can be generous. A genuine re-run — a new
+ * journey, or a rider who changed where they are getting off — is handled by
+ * `AudioQueue.resetCooldowns()`, which is the mechanism for "this is a different
+ * question now"; a short cooldown is the wrong instrument for it.
+ *
+ * `arrived` is shorter than the rest on purpose. It is the one rung a rider may
+ * genuinely need twice inside a single stop dwell, and its own `expiresAt` of
+ * TTL.IMMEDIATE already stops a stale copy reaching the front of the queue.
+ */
+const RUNG_COOLDOWN_MS = {
+  overshoot: 5 * 60_000,
+  arrived: 2 * 60_000,
+  remaining: 5 * 60_000,
+} as const;
+
 export function announceRemaining(
   remaining: number,
   stop: { id: string; name: string },
@@ -276,6 +303,7 @@ export function announceRemaining(
       earcon: "urgent",
       haptic,
       dedupeKey: "overshoot",
+      cooldownMs: RUNG_COOLDOWN_MS.overshoot,
       // Long: an overshoot stays true and stays actionable. Unlike a count, it
       // does not stop being the right thing to say a minute later.
       expiresAt: now + TTL.STATE,
@@ -290,6 +318,7 @@ export function announceRemaining(
       earcon: "urgent",
       haptic,
       dedupeKey: "arrived",
+      cooldownMs: RUNG_COOLDOWN_MS.arrived,
       // The shortest lifetime in the app. "Одоо буугаарай" that arrives after
       // the doors close is not a late message, it is a wrong one — it sends
       // someone toward a door that is shut, on a bus that is moving.
@@ -305,6 +334,7 @@ export function announceRemaining(
       earcon: "alert",
       haptic,
       dedupeKey: "remaining-1",
+      cooldownMs: RUNG_COOLDOWN_MS.remaining,
       expiresAt: now + TTL.ROUTINE,
       label: `next stop ${stop.name} — get ready`,
     };
@@ -317,6 +347,7 @@ export function announceRemaining(
       earcon: "soft",
       haptic,
       dedupeKey: `remaining-${remaining}`,
+      cooldownMs: RUNG_COOLDOWN_MS.remaining,
       expiresAt: now + TTL.ROUTINE,
       label: `${remaining} stops remaining`,
     };
