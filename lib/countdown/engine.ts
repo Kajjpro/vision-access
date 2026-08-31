@@ -79,6 +79,30 @@ export const ADVANCE_THRESHOLD_M = 40;
 /** Consecutive agreeing fixes required to commit an advance. */
 export const CONFIRMATION_FIXES = 2;
 
+/**
+ * Along-route metres before a stop at which the rider is AT it.
+ *
+ * ── WHY THIS IS NOT ADVANCE_THRESHOLD_M ────────────────────────────────────
+ *
+ * The engine answers two questions with opposite error costs, and one threshold
+ * cannot serve both.
+ *
+ *   WHICH STOP HAVE WE COMPLETED?  Advancing early is expensive: a miscount
+ *   cascades through every stop after it. That is what ADVANCE_THRESHOLD_M at
+ *   40 m PAST, times two confirming fixes, is defending, and it is unchanged.
+ *
+ *   ARE WE AT THE DESTINATION NOW?  Announcing late is expensive, and it was
+ *   measured: on route 11100730 the alight instruction landed 66 s after the
+ *   get-ready and 47 s before the overshoot — i.e. after the doors had closed.
+ *
+ * So arrival gets its own threshold, measured BEFORE the stop rather than after
+ * it. 70 m is `ENTER_M` from lib/transit/stop-matcher.ts, the one arrival radius
+ * in this repository with empirical backing — 168 route/direction pairs — behind
+ * it. It is along-route here rather than straight-line, per the CLAUDE.md rule
+ * that every threshold is measured along the route and never perpendicular.
+ */
+export const ARRIVAL_RADIUS_M = 70;
+
 /** A stationary spell this long is a terminus turnaround, not drift. */
 export const LAYOVER_MS = 120_000;
 
@@ -121,6 +145,22 @@ export type EngineState = {
   stationarySinceMs: number | null;
   /** An advance is proposed but not yet confirmed. */
   pending: { index: number; fixes: number } | null;
+  /**
+   * Highest stop index the rider has been AT, entry-confirmed.
+   *
+   * DELIBERATELY NOT `stopIndex`. Committing the count on entry would make the
+   * very next projection read as behind the committed index, which the
+   * monotonic constraint below correctly interprets as travelling backwards —
+   * so an early commit would manufacture `wrong-direction` events on a bus
+   * tracking its route perfectly. CLAUDE.md is explicit that a spurious
+   * wrong-bus alert, which makes a rider leave a CORRECT bus, is a real harm.
+   *
+   * So arrival is a second, monotonic signal that rides alongside the count and
+   * never moves it. Only `remainingForAlighting` reads it.
+   */
+  reachedIndex: number | null;
+  /** An arrival is proposed but not yet confirmed. Mirrors `pending`. */
+  atPending: { index: number; fixes: number } | null;
   /** Consecutive intervals the index has moved backwards — §6.1 wrong-direction. */
   regressions: number;
   /** Consecutive intervals the nearest stop was off this variant — §6.1 wrong-bus. */
@@ -139,6 +179,8 @@ export function createEngine(startIndex = 0, geometry?: RouteGeometry): EngineSt
     lastFixPos: null,
     stationarySinceMs: null,
     pending: null,
+    reachedIndex: null,
+    atPending: null,
     regressions: 0,
     offRouteIntervals: 0,
     downgradeAnnounced: false,
@@ -148,6 +190,13 @@ export function createEngine(startIndex = 0, geometry?: RouteGeometry): EngineSt
 export type EngineEvent =
   /** The committed index moved forward. The only event that changes a count. */
   | { type: "advanced"; from: number; to: number; alongM: number }
+  /**
+   * The rider is AT this stop, confirmed on entry. Does not move the count.
+   *
+   * Separate from `advanced` because the two answer different questions and
+   * fire at different moments — see ARRIVAL_RADIUS_M.
+   */
+  | { type: "at-stop"; index: number }
   /** Confidence changed. Emitted on every change; the caller speaks only downgrades, once. */
   | { type: "confidence"; from: Confidence; to: Confidence; source: PositionSource }
   /** Index moved backwards for CONFIRMATION_FIXES intervals — §6.1. */
@@ -298,6 +347,10 @@ export function onFix(
       next.pending = null;
       next.regressions = 0;
       next.stationarySinceMs = 0;
+      // A turnaround is a NEW trip: whatever was reached belongs to the last
+      // one, and carrying it over would hold a stale arrival across the reset.
+      next.reachedIndex = null;
+      next.atPending = null;
     } else {
       next.regressions = state.regressions + 1;
       next.pending = null;
@@ -366,6 +419,70 @@ export function onFix(
     }
   }
 
+  // --- arrival: entry-confirmed, and it never moves the count ---------------
+  /**
+   * Which stop we are AT, if any — the nearer of the one just passed and the one
+   * being approached, each tested against ARRIVAL_RADIUS_M along the route.
+   *
+   * Both are checked because the advance rule holds the committed index back for
+   * 40 m after a stop: during that window the projection has passed stop k while
+   * `stopIndex` still reads k-1, and looking only ahead would skip k entirely.
+   */
+  const passedIndex = projection.stopIndex;
+  const nextIndex = passedIndex + 1;
+  const passedM = projection.alongM - geometry.distanceToStop(passedIndex);
+
+  const nearStops: { index: number; distanceM: number }[] = [];
+  if (passedM >= 0 && passedM <= ARRIVAL_RADIUS_M) {
+    nearStops.push({ index: passedIndex, distanceM: passedM });
+  }
+  if (nextIndex < geometry.stopCount && projection.toNextStopM <= ARRIVAL_RADIUS_M) {
+    nearStops.push({ index: nextIndex, distanceM: projection.toNextStopM });
+  }
+  const atCandidate = nearStops.length
+    ? nearStops.reduce((a, b) => (b.distanceM < a.distanceM ? b : a)).index
+    : null;
+
+  const alreadyReached = next.reachedIndex !== null && atCandidate !== null
+    && atCandidate <= next.reachedIndex;
+
+  /**
+   * THE CANDIDATE MUST BE ADJACENT TO THE COUNT. This is `LOOKAHEAD` from
+   * lib/transit/stop-matcher.ts, and it is not optional.
+   *
+   * The projection is hinted over a 1500 m window, and several UB routes double
+   * back inside it: on 14100129 dir 1, stops 17 and 19 carry the same name on
+   * opposite sides of a road, 130 m apart on the ground and 643 m apart along
+   * the route. Two consecutive noisy fixes there project onto the far segment,
+   * and without this guard the latch confirmed arrival at stop 19 while the bus
+   * was at 16 — "Одоо буугаарай", 101 s early, at the wrong stop, and latched
+   * permanently because a latch is never withdrawn.
+   *
+   * `stopIndex` is the last stop confirmed passed by 40 m, so the rider is
+   * either still beside it or approaching the next one. There is no third
+   * option, and a candidate further ahead is a projection excursion rather than
+   * a bus. Measured across all 155 route/direction pairs, this guard removes
+   * every early-arrival outlier without delaying a single correct one.
+   */
+  const beyondLookahead = atCandidate !== null && atCandidate > next.stopIndex + 1;
+
+  if (atCandidate === null || atCandidate < next.stopIndex || alreadyReached || beyondLookahead) {
+    // Nothing in range, behind the count, or already latched. A latch is never
+    // withdrawn — see `remainingForAlighting`.
+    next.atPending = null;
+  } else {
+    // The same two-fix confirmation the advance uses. One fix is a rumour, and
+    // this one ends with "get off now".
+    const fixes = state.atPending?.index === atCandidate ? state.atPending.fixes + 1 : 1;
+    if (fixes >= CONFIRMATION_FIXES) {
+      next.reachedIndex = atCandidate;
+      next.atPending = null;
+      events.push({ type: "at-stop", index: atCandidate });
+    } else {
+      next.atPending = { index: atCandidate, fixes };
+    }
+  }
+
   // --- §6.1 wrong bus ------------------------------------------------------
   if (nearestStopIsOnVariant === false) {
     next.offRouteIntervals = state.offRouteIntervals + 1;
@@ -425,6 +542,54 @@ export function onTick(state: EngineState, now: number): EngineResult {
  */
 export function remainingTo(state: EngineState, destinationIndex: number): number {
   return destinationIndex - state.stopIndex;
+}
+
+/**
+ * Stops remaining, as the ALIGHTING ladder must see them.
+ *
+ * Identical to `remainingTo` everywhere except at the destination itself, where
+ * the count alone answers too late: `stopIndex` reaches the destination only
+ * once the bus is 40 m past it, so a rung-0 "Одоо буугаарай" derived from the
+ * count arrives after the doors have shut. Once the destination has been
+ * REACHED — entry-confirmed, see ARRIVAL_RADIUS_M — the answer is zero, and the
+ * bus departing cannot take it back.
+ *
+ * `Math.min` rather than a plain 0 is what makes overshoot still work: after the
+ * bus passes the stop the count keeps falling and this stops clamping, so -1
+ * reaches the ladder exactly as before.
+ *
+ * The result is monotonically non-increasing, which the replay harness asserts:
+ * `stopIndex` only rises, `reachedIndex` only rises, so `counted` only falls and
+ * clamping a falling series leaves it falling.
+ *
+ * ── WHY RUNG 1 IS CLAMPED TOO ──────────────────────────────────────────────
+ *
+ * Moving rung 0 earlier pulls it toward rung 1, which still fired 40 m PAST the
+ * preceding stop — so where the last two stops sit close together, "get ready"
+ * and "get off now" collapsed into each other and the rider lost the warning
+ * they stand up on. Measured over 310 simulated journeys: 5 had under 15 s
+ * between them and 1 lost "get ready" entirely.
+ *
+ * Clamping rung 1 on entry to the preceding stop restores the interval, and it
+ * is the more honest moment anyway: "дараагийн буудал" is worth most while the
+ * bus is standing at the stop before, not 40 m after it pulled away. The same
+ * 310 journeys then show 0 rungs skipped at any level, 0 duplicates, and a p05
+ * interval of 37 s.
+ *
+ * Rungs 3 and 2 are deliberately NOT clamped. They are situational awareness
+ * rather than instructions, nothing is lost by their arriving on the count, and
+ * clamping every rung would shift the whole ladder a stop earlier — which is a
+ * different change from the one this function exists to make.
+ */
+export function remainingForAlighting(state: EngineState, destinationIndex: number): number {
+  const counted = destinationIndex - state.stopIndex;
+  if (state.reachedIndex !== null && state.reachedIndex >= destinationIndex) {
+    return Math.min(counted, 0);
+  }
+  if (state.reachedIndex !== null && state.reachedIndex >= destinationIndex - 1) {
+    return Math.min(counted, 1);
+  }
+  return counted;
 }
 
 /**
