@@ -9,8 +9,23 @@
  * service worker: everything the bus modes can say is on the device before the
  * user boards.
  */
+import { ALL_PHRASES } from "@/lib/ui/announcements";
 import type { ClipPlayer } from "./audio-queue";
 import type { AudioManifest } from "./types";
+
+/**
+ * Every `ui_*` clip the announcement registry knows about.
+ *
+ * Derived from ALL_PHRASES rather than hand-listed, so adding a phrase to
+ * lib/ui/announcements.ts is enough — there is no second list to forget.
+ */
+const DEFAULT_UI_KEYS: string[] = [
+  ...new Set(
+    Object.values(ALL_PHRASES)
+      .map((p) => p.clip)
+      .filter((c): c is string => c !== null && c.startsWith("ui_")),
+  ),
+];
 
 export class ManifestClipPlayer implements ClipPlayer {
   private buffers = new Map<string, AudioBuffer>();
@@ -35,11 +50,31 @@ export class ManifestClipPlayer implements ClipPlayer {
   constructor(
     private manifest: AudioManifest,
     private ctx: AudioContext,
+    /** UI phrase keys to load alongside the manifest. Defaults to all of them. */
+    private uiKeys: string[] = DEFAULT_UI_KEYS,
   ) {}
 
   /** The URL this device should actually fetch for a clip. */
   private urlFor(entry: { path: string; pathAac?: string }): string {
     return this.preferAac && entry.pathAac ? entry.pathAac : entry.path;
+  }
+
+  /**
+   * UI phrases live outside the transit manifest, as WAVs in public/audio.
+   *
+   * The project deliberately splits the two: 923 stop names are Opus because
+   * size matters, while UI phrases are WAV because iOS Safari decodes WAV
+   * natively and these are the clips a first-time user hears. That split left a
+   * gap — this player only knew the manifest, so every `ui_*` key the ride
+   * screen tried to speak came back as a missing clip and the countdown lost
+   * its wording ("өнгөрлөө", the status readout, the screen name).
+   *
+   * Resolving them here rather than merging the two sets keeps the format
+   * choice intact and means a screen can name any phrase without caring which
+   * pipeline rendered it.
+   */
+  private uiUrlFor(key: string): string | null {
+    return key.startsWith("ui_") ? `/audio/${key}.wav` : null;
   }
 
   has(key: string): boolean {
@@ -60,19 +95,22 @@ export class ManifestClipPlayer implements ClipPlayer {
    * say; passing nothing loads the lot.
    */
   async load(keys?: string[]): Promise<{ loaded: number; failed: string[] }> {
-    const wanted = keys ?? Object.keys(this.manifest);
+    // Default: the whole manifest PLUS every UI phrase, so a screen can speak
+    // any announcement without having to enumerate which pipeline rendered it.
+    const wanted = keys ?? [...Object.keys(this.manifest), ...this.uiKeys];
     const failed: string[] = [];
 
     await Promise.all(
       wanted.map(async (key) => {
         if (this.buffers.has(key)) return;
         const entry = this.manifest[key];
-        if (!entry) {
+        const url = entry ? this.urlFor(entry) : this.uiUrlFor(key);
+        if (!url) {
           failed.push(key);
           return;
         }
         try {
-          const res = await fetch(this.urlFor(entry));
+          const res = await fetch(url);
           if (!res.ok) throw new Error(String(res.status));
           this.buffers.set(key, await this.ctx.decodeAudioData(await res.arrayBuffer()));
         } catch {

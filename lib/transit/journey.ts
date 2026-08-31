@@ -25,6 +25,7 @@
  *   is a guess and a wrong guess sends the countdown off early.
  */
 import { JOURNEY, RIDE } from "@/lib/ui/announcements";
+import { TTL, vibrationFor } from "./announce";
 import type { Announcement } from "./audio-queue";
 import { mayAnnounceArrival, type ArrivalClaim, type FeedHealth } from "./vehicles";
 
@@ -124,16 +125,36 @@ export type Naming = {
 
 const number = (n: number) => `num_${n}`;
 
-/** Builds an announcement, dropping keys with no rendered clip. */
+/**
+ * Builds an announcement, dropping keys with no rendered clip.
+ *
+ * `at` is the reducer's own `now`, so the lifetime is measured from the event
+ * that caused the announcement rather than from whenever the queue got round to
+ * stamping it. Callers that omit it get a routine lifetime; the ones that
+ * matter — arrival, overshoot — pass their own.
+ */
 function say(
   naming: Naming,
   keys: (string | null)[],
-  opts: { priority?: Announcement["priority"]; dedupeKey?: string; label: string },
+  opts: {
+    priority?: Announcement["priority"];
+    dedupeKey?: string;
+    label: string;
+    earcon?: Announcement["earcon"];
+    haptic?: number[];
+    cooldownMs?: number;
+    at?: number;
+    ttlMs?: number;
+  },
 ): Announcement {
   return {
     keys: keys.filter((k): k is string => Boolean(k)).filter(naming.has),
     priority: opts.priority ?? "normal",
     dedupeKey: opts.dedupeKey,
+    earcon: opts.earcon,
+    haptic: opts.haptic,
+    cooldownMs: opts.cooldownMs,
+    expiresAt: (opts.at ?? Date.now()) + (opts.ttlMs ?? TTL.ROUTINE),
     label: opts.label,
   };
 }
@@ -256,7 +277,7 @@ export function reduce(
 
       return {
         state: next,
-        announcements: [ridingAnnouncement(event, naming)].filter((a): a is Announcement => a !== null),
+        announcements: [ridingAnnouncement(event, naming, now)].filter((a): a is Announcement => a !== null),
       };
     }
 
@@ -378,6 +399,7 @@ export function shouldAnnounceStop(remaining: number): boolean {
 function ridingAnnouncement(
   event: Extract<JourneyEvent, { type: "stop-passed" }>,
   naming: Naming,
+  now: number,
 ): Announcement | null {
   const { remaining, stopId } = event;
   if (remaining < 0) return null;
@@ -391,9 +413,14 @@ function ridingAnnouncement(
       remaining > 0 ? RIDE.stopsRemaining.clip : null]
       .filter((k): k is string => Boolean(k)).filter(naming.has),
     priority: remaining <= 1 ? "critical" : "normal",
+    earcon: remaining <= 1 ? "alert" : "soft",
+    haptic: vibrationFor(remaining) ?? undefined,
     // Keyed on the INDEX, so GPS jitter re-reporting the same stop cannot
     // repeat the announcement.
     dedupeKey: `passed-${event.index}`,
+    // The last stop before the destination is the one whose value is entirely
+    // in arriving on time; the earlier ones can afford to wait their turn.
+    expiresAt: now + (remaining <= 1 ? TTL.IMMEDIATE : TTL.ROUTINE),
     label: `passed ${stopId}, ${remaining} remaining`,
   };
 }

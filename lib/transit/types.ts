@@ -20,7 +20,14 @@ export type Route = {
   id: string;
   /** On-screen, matches signage: `Ч:39`, `М:4`. Cyrillic М (U+041C), not Latin. */
   displayName: string;
-  /** Hand-authored Mongolian. `null` until data/route-names.json is filled. */
+  /**
+   * The Mongolian a person actually says — `Ч:35` is spoken "чэ гучин тав".
+   *
+   * All 84 are filled from data/route-names.json and asserted non-null by
+   * lib/transit/announce.test.ts. The type stays nullable because the build
+   * can emit null under `--allow-missing-spoken`, which is explicitly NOT
+   * shippable; nothing at runtime should ever see one.
+   */
   spokenName: string | null;
   longName: string | null;
   directions: { id: number; headsign: string }[];
@@ -121,7 +128,24 @@ export const stripFeedPrefix = (id: string | undefined): string | null =>
 export type Arrival = {
   routeId: string;
   routeDisplayName: string;
-  /** Minutes from now, already rounded. */
+  /**
+   * THE ARRIVAL INSTANT, epoch ms. The only field a countdown may be built from.
+   *
+   * `minutes` below is a countdown frozen at the moment this object was built,
+   * and it was wrong three ways at once: the proxy caches responses for 45 s,
+   * the wait screen held one fetch in state for as long as a rider browsed, and
+   * nothing expired it once the bus had gone. An absolute time cannot go stale
+   * in any of those ways — see `countdownFor` in lib/transit/eta.ts, which is
+   * the only place a spoken minute is now derived.
+   *
+   * Null when the source could not supply one.
+   */
+  arrivesAt: number | null;
+  /**
+   * Minutes from now AT THE MOMENT THIS WAS BUILT. Debug and logging only.
+   *
+   * Never speak this and never render it. Read `countdownFor(arrival, now)`.
+   */
   minutes: number;
   headsign: string | null;
   isEstimate: boolean;

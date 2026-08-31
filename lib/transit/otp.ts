@@ -134,6 +134,10 @@ export function legsToArrivals(legs: OtpLeg[], stopId: string, now = Date.now())
     const arrival: Arrival = {
       routeId,
       routeDisplayName: leg.routeShortName ?? routeId,
+      // The absolute instant is what ships; `minutes` is a snapshot for the
+      // debug panel. A response cached for 45 s and then held on a screen for
+      // minutes replays the snapshot, never the truth — see Arrival.arrivesAt.
+      arrivesAt: leg.startTime,
       minutes,
       headsign: leg.headsign ?? null,
       // realTime is false on every leg the feed has ever returned.
@@ -162,6 +166,7 @@ export function headwayFallback(
   headwayByRoute: Map<string, number>,
   routeNames: Map<string, string>,
   defaultHeadwaySec: number | null,
+  now = Date.now(),
 ): Arrival[] {
   const out: Arrival[] = [];
   for (const routeId of routeIds) {
@@ -169,10 +174,16 @@ export function headwayFallback(
     // No published headway and no observed one: say nothing about this route
     // rather than invent a number.
     if (!headway || headway <= 0) continue;
+    const minutes = Math.max(1, Math.round(headway / 2 / 60));
     out.push({
       routeId,
       routeDisplayName: routeNames.get(routeId) ?? routeId,
-      minutes: Math.max(1, Math.round(headway / 2 / 60)),
+      // Anchored to a real instant like every other arrival, so this one also
+      // counts down instead of sitting at "10 минут" for the next half hour.
+      // It is the weakest claim the app makes, and a frozen weak claim is the
+      // one most likely to still be on screen when it has become false.
+      arrivesAt: now + minutes * 60_000,
+      minutes,
       headsign: null,
       isEstimate: true,
       source: "headway",
