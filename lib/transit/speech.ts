@@ -167,21 +167,57 @@ export function routeSpokenNameToSpeech(spokenName: string): SpeechResult {
 }
 
 /**
- * Mongolian cardinals 1–40, for "N буудал үлдлээ".
+ * Mongolian cardinals 1–40 in ATTRIBUTIVE form, for "N буудал үлдлээ".
  *
- * Attributive forms (`нэгэн`, `хоёр`…) are not used: the countdown says the
- * number as a standalone count before a noun phrase the clip already carries.
+ * ── THE BUG THIS REPLACES ──────────────────────────────────────────────────
+ *
+ * The comment here used to say attributive forms "are not used: the countdown
+ * says the number as a standalone count before a noun phrase the clip already
+ * carries". That reasoning is wrong about the grammar. A Mongolian numeral
+ * standing before the noun it counts takes the attributive form whether or not
+ * the two arrived from separate audio clips — the listener hears one phrase, and
+ * `гурав буудал` is ungrammatical in it. The app has been saying that, and
+ * `дөрөв буудал`, and `тав минутын дараа`, to every rider since the countdown
+ * shipped.
+ *
+ * Every one of the ~10 places that plays a `num_N` clip puts a noun immediately
+ * after it — `буудал`, `буудлын`, `минутын` — so there is no site that wants the
+ * standalone form and no branch is needed. The table is simply the right one now.
+ *
+ * ── BUILT FROM PARTS, NOT TYPED OUT FORTY TIMES ────────────────────────────
+ *
+ * §11 says every Mongolian string is a draft pending a native review pass. A
+ * reviewer correcting `дөрвөн` should change one word, not hunt for the four
+ * places 4 appears. So the table is composed from ten units and three tens, and
+ * `speech.test.ts` asserts the generated output against the reviewed table in
+ * CLAUDE.md.
+ *
+ * Note the tens were ALREADY attributive as compound modifiers — `арван нэг`,
+ * not `арав нэг`. Only the trailing unit was wrong, plus the bare tens
+ * themselves: standalone `хорь`/`гуч`/`дөч` become `хорин`/`гучин`/`дөчин`
+ * before a noun.
  */
-export const CARDINALS: Record<number, string> = {
-  1: "нэг", 2: "хоёр", 3: "гурав", 4: "дөрөв", 5: "тав",
-  6: "зургаа", 7: "долоо", 8: "найм", 9: "ес", 10: "арав",
-  11: "арван нэг", 12: "арван хоёр", 13: "арван гурав", 14: "арван дөрөв", 15: "арван тав",
-  16: "арван зургаа", 17: "арван долоо", 18: "арван найм", 19: "арван ес", 20: "хорь",
-  21: "хорин нэг", 22: "хорин хоёр", 23: "хорин гурав", 24: "хорин дөрөв", 25: "хорин тав",
-  26: "хорин зургаа", 27: "хорин долоо", 28: "хорин найм", 29: "хорин ес", 30: "гуч",
-  31: "гучин нэг", 32: "гучин хоёр", 33: "гучин гурав", 34: "гучин дөрөв", 35: "гучин тав",
-  36: "гучин зургаа", 37: "гучин долоо", 38: "гучин найм", 39: "гучин ес", 40: "дөч",
+const UNITS_ATTRIBUTIVE: Record<number, string> = {
+  1: "нэгэн", 2: "хоёр", 3: "гурван", 4: "дөрвөн", 5: "таван",
+  6: "зургаан", 7: "долоон", 8: "найман", 9: "есөн",
 };
+
+/** Also the modifier form used inside compounds: `хорин гурван`. */
+const TENS_ATTRIBUTIVE: Record<number, string> = {
+  10: "арван", 20: "хорин", 30: "гучин", 40: "дөчин",
+};
+
+function attributiveCardinal(n: number): string {
+  const tens = Math.floor(n / 10) * 10;
+  const unit = n % 10;
+  if (unit === 0) return TENS_ATTRIBUTIVE[tens];
+  if (tens === 0) return UNITS_ATTRIBUTIVE[unit];
+  return `${TENS_ATTRIBUTIVE[tens]} ${UNITS_ATTRIBUTIVE[unit]}`;
+}
+
+export const CARDINALS: Record<number, string> = Object.fromEntries(
+  Array.from({ length: 40 }, (_, i) => [i + 1, attributiveCardinal(i + 1)]),
+);
 
 /**
  * Every fixed phrase the bus modes speak.

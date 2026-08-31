@@ -98,6 +98,23 @@ export const WAIT = {
 
   noStopNearby: p("bus_no_stop_nearby", "Ойролцоо буудал олдсонгүй", "No nearby stop found"),
 
+  /**
+   * WEAK SIGNAL IS NOT THE SAME AS NO STOP, and the two must never share a
+   * phrase. "No stop nearby" sends someone walking to find one; a bad fix means
+   * standing still under open sky is the right move. Telling a blind user to
+   * walk when the real problem is a roof wastes the one action they might take.
+   */
+  gpsWeak: p("ui_wait_gps_weak", "Байршил тодорхойгүй байна. Задгай газарт гарч түр хүлээнэ үү.",
+    "Location is unclear. Please move into the open and wait a moment."),
+  /** Spoken while a fix is still converging, so the wait is never silent. */
+  stillLocating: p("ui_wait_still_locating", "Байршлыг нарийсгаж байна", "Narrowing down your location"),
+  /**
+   * The stop is a best guess, not a statement. Paired with the SAME hedge the
+   * arrival times use, so "approximately" means one consistent thing to the user
+   * wherever they hear it.
+   */
+  approximateStop: p("ui_wait_approximate_stop", "Магадгүй энэ буудал", "Possibly this stop"),
+
   /** The wait screen locates automatically; this is spoken while it works. */
   searching: p("ui_wait_searching", "Буудлыг хайж байна", "Looking for your stop"),
   /** Offered as the first option: speaking beats scrolling a long list. */
@@ -252,11 +269,69 @@ export const JOURNEY = {
   resumed: p("ui_journey_resumed", "Аяллаа үргэлжлүүлж байна", "Resuming your journey"),
 } as const;
 
+// ------------------------------------------------------- voice journey
+// Spoken destination capture: "say where you are, say where you are going".
+// These are the fragments `lib/speech/announcements.ts` splices into carrier
+// sentences around stop and route names, so each must end FLAT — a phrase that
+// falls like the end of a sentence makes the stop name after it sound like a
+// new one.
+//
+// Only the phrases with no existing equivalent live here. Everything the app
+// already says — "Хаашаа явах вэ?", "Сонсож байна", "Ойлгосонгүй" — is reused
+// from the tables above rather than rendered twice in two voices.
+
+export const VOICE_JOURNEY = {
+  /** Origin, asked first. The destination question already exists as JOURNEY.askDestination. */
+  askOrigin: p("ui_vj_ask_origin", "Та одоо аль зогсоол дээр байна вэ?",
+    "Which stop are you at now?"),
+  /** Push-to-talk is not discoverable. It has to be said, every time. */
+  holdToSpeak: p("ui_vj_hold_to_speak", "Дэлгэцийг дараад барьж байгаад ярина уу.",
+    "Press and hold the screen, then speak."),
+
+  // --- disambiguation ----------------------------------------------------
+  /** Asking costs three seconds; guessing costs the trip. */
+  whichOne: p("ui_vj_which_one", "Аль нь вэ?", "Which one?"),
+  or: p("ui_vj_or", "эсвэл", "or"),
+
+  // --- confirmation ------------------------------------------------------
+  // "Та {origin}-аас {dest} руу явах гэж байна. Зөв үү?" — assembled around
+  // two stop clips. NOTHING commits until this is answered with a double-tap.
+  from: p("ui_vj_from", "аас", "from … (case marker)"),
+  to: p("ui_vj_to", "руу", "to … (case marker)"),
+  confirmSuffix: p("ui_vj_confirm_suffix", "явах гэж байна. Зөв үү?",
+    "… you are going. Is that right?"),
+
+  // --- the answer --------------------------------------------------------
+  boardRoute: p("ui_vj_board_route", "Та дугаар", "Take number …"),
+  boardRouteSuffix: p("ui_vj_board_route_suffix", "автобусанд сууна",
+    "… bus"),
+
+  // --- refusals ----------------------------------------------------------
+  sameStop: p("ui_vj_same_stop", "Та аль хэдийн тэнд байна", "You are already there"),
+  /**
+   * The rider named the two stops the other way round. Worth saying out loud:
+   * a flat "no route" would send someone looking for a bus that is standing
+   * right in front of them, in the other direction.
+   */
+  wrongDirection: p("ui_vj_wrong_direction", "Эсрэг чиглэлд байна. Солих уу?",
+    "That is the opposite direction. Swap them?"),
+
+  // --- falling back ------------------------------------------------------
+  /** Permission, not signal. The remedy is different and so is the sentence. */
+  micDenied: p("ui_vj_mic_denied", "Микрофон ашиглах зөвшөөрөл алга байна",
+    "No microphone permission"),
+  /** Voice is never the only path. This is how the rider is told so. */
+  useListInstead: p("ui_vj_use_list_instead", "Жагсаалтаас сонгоно уу",
+    "Choose from the list instead"),
+} as const;
+
 // --------------------------------------------------------------- registry
 
 /** Every phrase, flattened — used by the review dump and the coverage test. */
 export const ALL_PHRASES: Record<string, Phrase> = Object.fromEntries(
-  Object.entries({ GESTURE, SCREEN, POSITION, MODE, WAIT, RIDE, DEGRADED, LIST, VOICE, JOURNEY }).flatMap(
+  Object.entries({
+    GESTURE, SCREEN, POSITION, MODE, WAIT, RIDE, DEGRADED, LIST, VOICE, JOURNEY, VOICE_JOURNEY,
+  }).flatMap(
     ([group, table]) => Object.entries(table).map(([key, phrase]) => [`${group}.${key}`, phrase as Phrase]),
   ),
 );

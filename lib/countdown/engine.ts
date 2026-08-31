@@ -1,0 +1,450 @@
+/**
+ * Where along a route something is, and how sure we are.
+ *
+ * ONE ENGINE, TWO CONSUMERS. The only difference is whose position is fed in:
+ *
+ *   alighting  the rider's own GPS, counting down to their destination
+ *   boarding   a vehicle's position, counting down to the rider's stop
+ *
+ * They are the same problem — a scalar walking forward along a chain of stops,
+ * with a count derived from it — so they are the same code. Splitting them was
+ * the tempting design and would have meant two hysteresis implementations, of
+ * which one would be the tested one.
+ *
+ * Pure: no clock, no geolocation, no React, no audio. `now` and every fix are
+ * parameters, which is what lets a whole journey replay from a recorded trace in
+ * milliseconds, including the dropouts.
+ *
+ * ── WHAT THE HYSTERESIS IS FOR ─────────────────────────────────────────────
+ *
+ * A GPS fix near a stop boundary flaps. Un-damped, the index oscillates and
+ * every oscillation is an announcement — "гурван буудал", "дөрвөн буудал",
+ * "гурван буудал" — which is both maddening and, worse, teaches the rider that
+ * the count is noise to be ignored. It is the single most common bug in this
+ * class of feature, so the damping is threefold and each part is separately
+ * testable:
+ *
+ *   ADVANCE THRESHOLD   the projection must be 40 m PAST the stop, not merely
+ *                       nearest to it. Below that is ordinary fix noise.
+ *   CONFIRMATION        two consecutive fixes must agree. One fix is a rumour.
+ *   MONOTONIC           the index never decreases inside a trip. A bus does not
+ *                       reverse; a fix that says otherwise is drift. The single
+ *                       exception is a long stationary period, which is a
+ *                       terminus turnaround and a genuinely new trip.
+ *
+ * On a loop variant the same stop id appears twice. **The index is the
+ * identity.** Nothing here is ever keyed on a stop id.
+ */
+
+import type { LatLon, RouteGeometry } from "./geometry";
+
+/**
+ * How the position was arrived at. Drives the phrasing register, per CLAUDE.md.
+ *
+ * Ordered by how much we may claim: a rider steps toward live traffic on the
+ * strength of these words, so the register is bound to the source rather than
+ * chosen at the call site.
+ */
+export type PositionSource =
+  /** Matched to route geometry from a fresh fix. */
+  | "gps_matched"
+  /** No position at all; derived from an arrival estimate. */
+  | "eta_inferred"
+  /** No fix; extrapolated from the last known index and elapsed time. */
+  | "dead_reckoned"
+  | "none";
+
+export type Confidence = "high" | "medium" | "low" | "none";
+
+export type Fix = {
+  lat: number;
+  lon: number;
+  /** Metres. Fixes worse than this engine's limit are discarded, not smoothed. */
+  accuracyM: number;
+  /** Epoch ms, from the fix itself — never from the device clock at receipt. */
+  timestamp: number;
+};
+
+// --------------------------------------------------------------- constants
+
+/**
+ * Below this a fix is usable. A cheap Android inside a metal bus routinely
+ * exceeds it, which is why exceeding it means "ignore", never "smooth".
+ */
+export const ACCURACY_LIMIT_M = 100;
+
+/** Metres past a stop before it counts as reached. See the header. */
+export const ADVANCE_THRESHOLD_M = 40;
+
+/** Consecutive agreeing fixes required to commit an advance. */
+export const CONFIRMATION_FIXES = 2;
+
+/** A stationary spell this long is a terminus turnaround, not drift. */
+export const LAYOVER_MS = 120_000;
+
+/** Movement under this between fixes is "stationary" for the layover test. */
+export const STATIONARY_M = 25;
+
+/** Past this, extrapolation error exceeds one stop interval. */
+export const DEAD_RECKONING_LIMIT_MS = 180_000;
+
+/** A fix older than this cannot support the assertive register. */
+export const FRESH_MS = 30_000;
+
+/** Past this the fix supports nothing at all. */
+export const STALE_MS = 90_000;
+
+/**
+ * How far either side of our last position a fix is looked for.
+ *
+ * Only matters on loop variants, where the same ground carries two scalars —
+ * but it has to be wide enough to absorb a dropout. At 60 km/h a bus covers a
+ * kilometre a minute, so this holds through roughly a minute of silence before
+ * the projection falls back to a whole-route sweep.
+ */
+export const PROJECTION_WINDOW_M = 1_500;
+
+// ------------------------------------------------------------------- state
+
+export type EngineState = {
+  /** Committed index. Monotonic within a trip. */
+  stopIndex: number;
+  /** Scalar position along the variant, metres from the first stop. */
+  alongM: number;
+  source: PositionSource;
+  confidence: Confidence;
+  /** Timestamp of the last accepted fix; null before the first. */
+  lastFixAt: number | null;
+  /** Last accepted position, for the stationary test. */
+  lastFixPos: LatLon | null;
+  /** How long the position has been essentially unchanged. */
+  stationarySinceMs: number | null;
+  /** An advance is proposed but not yet confirmed. */
+  pending: { index: number; fixes: number } | null;
+  /** Consecutive intervals the index has moved backwards — §6.1 wrong-direction. */
+  regressions: number;
+  /** Consecutive intervals the nearest stop was off this variant — §6.1 wrong-bus. */
+  offRouteIntervals: number;
+  /** Set once a confidence downgrade has been announced. Announced ONCE. */
+  downgradeAnnounced: boolean;
+};
+
+export function createEngine(startIndex = 0, geometry?: RouteGeometry): EngineState {
+  return {
+    stopIndex: startIndex,
+    alongM: geometry ? geometry.distanceToStop(startIndex) : 0,
+    source: "none",
+    confidence: "none",
+    lastFixAt: null,
+    lastFixPos: null,
+    stationarySinceMs: null,
+    pending: null,
+    regressions: 0,
+    offRouteIntervals: 0,
+    downgradeAnnounced: false,
+  };
+}
+
+export type EngineEvent =
+  /** The committed index moved forward. The only event that changes a count. */
+  | { type: "advanced"; from: number; to: number; alongM: number }
+  /** Confidence changed. Emitted on every change; the caller speaks only downgrades, once. */
+  | { type: "confidence"; from: Confidence; to: Confidence; source: PositionSource }
+  /** Index moved backwards for CONFIRMATION_FIXES intervals — §6.1. */
+  | { type: "wrong-direction"; index: number }
+  /** Nearest stop was off this variant for CONFIRMATION_FIXES intervals — §6.1. */
+  | { type: "off-route"; index: number }
+  /** A long stationary spell ended the trip's monotonic constraint. */
+  | { type: "layover"; index: number }
+  /** Fix rejected. Reported so the debug panel shows why the count is not moving. */
+  | { type: "rejected"; reason: "accuracy" | "backwards" | "stale-timestamp" };
+
+export type EngineResult = { state: EngineState; events: EngineEvent[] };
+
+// --------------------------------------------------------------- confidence
+
+/**
+ * Source plus staleness → what we may claim. The table in CLAUDE.md, as code.
+ *
+ * Exported so the phrasing contract is asserted against this function rather
+ * than against a comment that drifted from it.
+ */
+export function confidenceFor(source: PositionSource, ageMs: number): Confidence {
+  if (source === "none") return "none";
+  if (source === "eta_inferred") return "medium";
+  if (source === "dead_reckoned") return ageMs <= DEAD_RECKONING_LIMIT_MS ? "low" : "none";
+  // gps_matched
+  if (ageMs <= FRESH_MS) return "high";
+  if (ageMs <= STALE_MS) return "medium";
+  return "none";
+}
+
+const RANK: Record<Confidence, number> = { none: 0, low: 1, medium: 2, high: 3 };
+
+/** True when `to` is worse than `from` — the only direction that is announced. */
+export function isDowngrade(from: Confidence, to: Confidence): boolean {
+  return RANK[to] < RANK[from];
+}
+
+// ------------------------------------------------------------------ update
+
+/**
+ * Feed one GPS fix.
+ *
+ * Returns a NEW state plus everything that changed. Never mutates: the caller
+ * keeps the previous state, which is what makes "what did this fix actually
+ * do" answerable in a test and on the debug panel.
+ */
+export function onFix(
+  state: EngineState,
+  fix: Fix,
+  geometry: RouteGeometry,
+  now: number,
+  /**
+   * Whether the globally nearest stop belongs to THIS variant.
+   *
+   * Supplied by the caller because answering it needs all 923 stops, and this
+   * module stays pure. Omit it and the wrong-bus detector simply never fires —
+   * which is the correct degradation, since a detector with no evidence must
+   * not guess.
+   *
+   * This is the §6.1 wrong-BUS test. It is topological for the same reason the
+   * wrong-DIRECTION test is: chords put a correct bus up to 546 m off its own
+   * route on an ordinary bend, so any perpendicular threshold fires constantly.
+   */
+  nearestStopIsOnVariant?: boolean,
+): EngineResult {
+  const events: EngineEvent[] = [];
+
+  // A fix stamped in the future, or before the one we already have, is a device
+  // clock problem. Relative deltas are trusted; absolute device time is not.
+  if (state.lastFixAt !== null && fix.timestamp < state.lastFixAt) {
+    return { state, events: [{ type: "rejected", reason: "stale-timestamp" }] };
+  }
+
+  // Discarded, never smoothed. A 300 m fix averaged with a 20 m one produces a
+  // confident-looking number that is wrong, which is the worst of both.
+  if (!Number.isFinite(fix.accuracyM) || fix.accuracyM > ACCURACY_LIMIT_M) {
+    return { state, events: [{ type: "rejected", reason: "accuracy" }] };
+  }
+
+  /**
+   * Always hinted, including on the first fix.
+   *
+   * There is no point in a journey where we do not know roughly where we are:
+   * `createEngine` is seeded from the boarding index the wait screen already
+   * chose. Hinting from the start is what keeps the two passes of a loop variant
+   * apart from the very first fix rather than from the second.
+   */
+  const projection = geometry.project(fix, {
+    nearAlongM: state.alongM,
+    windowM: PROJECTION_WINDOW_M,
+  });
+  const next: EngineState = { ...state };
+
+  // --- stationary / layover ------------------------------------------------
+  const movedM = state.lastFixPos
+    ? Math.hypot(
+        (fix.lat - state.lastFixPos.lat) * 111_132,
+        (fix.lon - state.lastFixPos.lon) * 111_320 * Math.cos((fix.lat * Math.PI) / 180),
+      )
+    : Infinity;
+  const gapMs = state.lastFixAt === null ? 0 : fix.timestamp - state.lastFixAt;
+
+  /**
+   * `stoodStillForMs` is the spell BEFORE this fix, not after it.
+   *
+   * The layover test below asks "had it been parked long enough when it moved",
+   * and the fix that proves the turnaround is by definition the one that moved.
+   * Reading the post-move value asked whether it was parked while departing,
+   * which is never true, so no turnaround was ever recognised.
+   */
+  const stoodStillForMs = state.stationarySinceMs ?? 0;
+
+  if (movedM < STATIONARY_M) {
+    next.stationarySinceMs = stoodStillForMs + gapMs;
+  } else {
+    next.stationarySinceMs = 0;
+  }
+
+  next.lastFixAt = fix.timestamp;
+  next.lastFixPos = { lat: fix.lat, lon: fix.lon };
+  next.source = "gps_matched";
+  /**
+   * The scalar moves only where the fix is BELIEVED.
+   *
+   * Set per branch below rather than here. A fix rejected as drift must not drag
+   * `alongM` with it, because `alongM` is what the next projection is hinted
+   * with — and a hint chasing the drift walks the search window off the route
+   * one rejected fix at a time.
+   */
+
+  // --- the monotonic constraint -------------------------------------------
+  const proposed = projection.stopIndex;
+
+  if (proposed < state.stopIndex) {
+    /**
+     * A LAYOVER IS THE ONE LEGITIMATE WAY BACK.
+     *
+     * A bus sitting at a terminus for two minutes and then reading as index 0
+     * is starting a new trip, not reversing. Everything else that reads
+     * backwards is drift, and accepting it would un-count a stop the rider has
+     * already been told they passed.
+     */
+    if (stoodStillForMs >= LAYOVER_MS) {
+      events.push({ type: "layover", index: proposed });
+      next.stopIndex = proposed;
+      next.alongM = projection.alongM;
+      next.pending = null;
+      next.regressions = 0;
+      next.stationarySinceMs = 0;
+    } else {
+      next.regressions = state.regressions + 1;
+      next.pending = null;
+      events.push({ type: "rejected", reason: "backwards" });
+      /**
+       * §6.1 WRONG DIRECTION — topological, not a distance.
+       *
+       * Sustained across CONFIRMATION_FIXES intervals, because a single
+       * backwards fix is drift and firing on it would tell a rider to leave a
+       * correct bus. See the geometry header for why this is not a
+       * perpendicular test.
+       */
+      if (next.regressions >= CONFIRMATION_FIXES) {
+        events.push({ type: "wrong-direction", index: state.stopIndex });
+      }
+    }
+  } else {
+    next.regressions = 0;
+    next.alongM = projection.alongM;
+
+    if (proposed > state.stopIndex) {
+      /**
+       * The 40 m gate, measured ALONG the route.
+       *
+       * `project` returns the last stop reached, so `proposed > current` already
+       * means we are past that stop — but "past" by a metre is fix noise. The
+       * distance beyond the proposed stop has to clear the threshold before the
+       * advance is even a candidate.
+       */
+      const pastM = projection.alongM - geometry.distanceToStop(proposed);
+
+      /**
+       * THE TERMINUS HAS NO "PAST".
+       *
+       * The gate asks for 40 m beyond the stop as proof we genuinely passed it
+       * rather than being noisily near it. At the last stop of a variant there
+       * is nowhere further to go, so that proof can never arrive — and a rider
+       * travelling to the end of the line, which is most of a commute, was
+       * never told they had got there. The count stopped one short and went
+       * quiet, which reads as "not yet" to someone who cannot see it.
+       *
+       * At the terminus the equivalent proof is being AT it, within the same
+       * threshold. The two-fix confirmation still applies, so a single drifted
+       * fix cannot end the journey early.
+       */
+      const isTerminus = proposed >= geometry.stopCount - 1;
+      const reached = isTerminus
+        ? pastM >= -ADVANCE_THRESHOLD_M
+        : pastM >= ADVANCE_THRESHOLD_M;
+
+      if (reached) {
+        const fixes = state.pending?.index === proposed ? state.pending.fixes + 1 : 1;
+        if (fixes >= CONFIRMATION_FIXES) {
+          events.push({ type: "advanced", from: state.stopIndex, to: proposed, alongM: projection.alongM });
+          next.stopIndex = proposed;
+          next.pending = null;
+        } else {
+          // One fix is a rumour. Held until a second agrees.
+          next.pending = { index: proposed, fixes };
+        }
+      } else {
+        next.pending = null;
+      }
+    } else {
+      next.pending = null;
+    }
+  }
+
+  // --- §6.1 wrong bus ------------------------------------------------------
+  if (nearestStopIsOnVariant === false) {
+    next.offRouteIntervals = state.offRouteIntervals + 1;
+    if (next.offRouteIntervals >= CONFIRMATION_FIXES) {
+      events.push({ type: "off-route", index: state.stopIndex });
+    }
+  } else if (nearestStopIsOnVariant === true) {
+    next.offRouteIntervals = 0;
+  }
+
+  // --- confidence ----------------------------------------------------------
+  const confidence = confidenceFor("gps_matched", now - fix.timestamp);
+  if (confidence !== state.confidence) {
+    events.push({ type: "confidence", from: state.confidence, to: confidence, source: "gps_matched" });
+    if (!isDowngrade(state.confidence, confidence)) next.downgradeAnnounced = false;
+  }
+  next.confidence = confidence;
+
+  return { state: next, events };
+}
+
+/**
+ * Time passing with no fix.
+ *
+ * Called on a timer by the host. Degrades the register rather than freezing it:
+ * to someone who cannot see the counter, an unchanging count is indistinguishable
+ * from a working one right up until they have ridden past their stop, so the
+ * loss of confidence has to become audible.
+ *
+ * Does NOT advance the index. Dead reckoning is reported as a state, not used to
+ * invent stops — a wrongly reckoned advance is exactly the announcement that
+ * puts someone off a bus in the wrong district.
+ */
+export function onTick(state: EngineState, now: number): EngineResult {
+  if (state.lastFixAt === null) return { state, events: [] };
+
+  const ageMs = now - state.lastFixAt;
+  const source: PositionSource =
+    ageMs <= STALE_MS ? "gps_matched"
+    : ageMs <= DEAD_RECKONING_LIMIT_MS ? "dead_reckoned"
+    : "none";
+
+  const confidence = confidenceFor(source, ageMs);
+  if (confidence === state.confidence && source === state.source) return { state, events: [] };
+
+  return {
+    state: { ...state, source, confidence },
+    events: [{ type: "confidence", from: state.confidence, to: confidence, source }],
+  };
+}
+
+/**
+ * How many stops remain to `destinationIndex`. Negative means overshot.
+ *
+ * The only place a count is derived, so "remaining" means the same thing to
+ * both ladders and to the status query.
+ */
+export function remainingTo(state: EngineState, destinationIndex: number): number {
+  return destinationIndex - state.stopIndex;
+}
+
+/**
+ * Reckoned index if we had to guess — for DIAGNOSTICS and the status query.
+ *
+ * Never fed back into `stopIndex`. Exposed so the status query can say "probably
+ * around here" in the low-confidence register instead of going silent, which is
+ * the one thing it must not do.
+ */
+export function deadReckonedIndex(
+  state: EngineState,
+  geometry: RouteGeometry,
+  now: number,
+  meanSpeedMps = 5.5,
+): number | null {
+  if (state.lastFixAt === null) return null;
+  const ageMs = now - state.lastFixAt;
+  if (ageMs > DEAD_RECKONING_LIMIT_MS) return null;
+  const spacing = geometry.meanStopSpacingM;
+  if (spacing <= 0) return null;
+  const advancedStops = Math.floor((meanSpeedMps * (ageMs / 1000)) / spacing);
+  return Math.min(geometry.stopCount - 1, state.stopIndex + advancedStops);
+}

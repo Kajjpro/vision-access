@@ -30,17 +30,76 @@ interface NavigatorWithAudioSession extends Navigator {
 }
 
 /**
+ * THE SESSION TYPE DECIDES WHETHER THE MICROPHONE CAN OPEN AT ALL.
+ *
+ * `playback` maps to iOS's playback audio category, which is what makes warnings
+ * audible with the ringer switch off — and which does NOT permit capture. A page
+ * that declares it and then calls `getUserMedia` gets a microphone that never
+ * opens, on iOS only; Android has no session concept and was never affected.
+ * That is why speaking a stop name worked on one platform and silently did
+ * nothing on the other.
+ *
+ * So the type is not a constant. It is `playback` whenever the app is only
+ * talking, and `play-and-record` for exactly as long as a capture is open. The
+ * switch is refcounted because two captures can overlap — a pre-warmed stream
+ * handed to a recogniser that then opens its own — and restoring `playback`
+ * under a live microphone would close it mid-sentence.
+ */
+function setAudioSession(type: AudioSessionType): void {
+  if (typeof navigator === "undefined" || !("audioSession" in navigator)) return;
+  try {
+    (navigator as NavigatorWithAudioSession).audioSession.type = type;
+  } catch {
+    // Some builds expose the property read-only. Capture still works there.
+  }
+}
+
+let captures = 0;
+
+/** Declare a capture. MUST be called before `getUserMedia`, not after. */
+export function beginCaptureSession(): void {
+  captures += 1;
+  if (captures === 1) setAudioSession("play-and-record");
+}
+
+/** Release a capture and, once the last one is gone, go back to playback. */
+export function endCaptureSession(): void {
+  if (captures === 0) return;
+  captures -= 1;
+  if (captures > 0) return;
+  setAudioSession("playback");
+  // Switching the category interrupts the context on iOS; nothing else will
+  // ever resume it, and the read-back that follows a recognition is the first
+  // thing the rider would lose.
+  resumeAudio();
+}
+
+/**
+ * Bring the context back after an iOS interruption.
+ *
+ * iOS has a state Web Audio never named: `interrupted`, entered on a phone call,
+ * a Siri invocation, or an audio-category change of our own. It is not
+ * `suspended`, so the old `state === "suspended"` check walked straight past it
+ * and the app went permanently silent to someone who cannot see that it had.
+ */
+export function resumeAudio(): void {
+  if (!ctx) return;
+  if (ctx.state !== "running") void ctx.resume().catch(() => {});
+}
+
+/**
  * The shared context, created on first call. MUST be called from inside a user
  * gesture; every later call returns the same instance.
  */
 export function audioContext(): AudioContext {
   if (!ctx) {
-    if ("audioSession" in navigator) {
-      (navigator as NavigatorWithAudioSession).audioSession.type = "playback";
-    }
+    setAudioSession(captures > 0 ? "play-and-record" : "playback");
     ctx = new AudioContext();
+    // Self-healing: an interruption we did not cause (a call, another app) is
+    // otherwise permanent, and every warning after it is silence.
+    ctx.addEventListener("statechange", () => resumeAudio());
   }
-  if (ctx.state === "suspended") void ctx.resume();
+  resumeAudio();
   return ctx;
 }
 
@@ -254,6 +313,55 @@ export function playTone(pan = 0): number {
   osc.stop(start + DURATION_S);
   duckProximity(start, DURATION_S);
   return DURATION_S;
+}
+
+/**
+ * The two microphone earcons: "speak now" and "got it".
+ *
+ * DELIBERATELY NOT `playTone`. That one is a 880 Hz square wave at 0.35 chosen
+ * to read as an alarm through a phone speaker on a street, and it means an
+ * obstacle the app could not measure. Borrowing it to mean "the microphone is
+ * open" would teach a blind user that the danger sound sometimes means nothing
+ * — the one confusion this app cannot afford. These are quiet sine pairs, an
+ * octave below the alarm, and sound like a device rather than a warning.
+ *
+ * A rising pair opens, a falling pair closes: the direction carries the meaning
+ * even when the sound is half-lost to traffic, which is the same reason lifts
+ * and card readers use exactly this pattern.
+ *
+ * Synthesised rather than rendered — an oscillator is not a TTS call, and these
+ * must work when every clip failed to decode.
+ */
+export function playListenCue(kind: "start" | "end"): number {
+  const context = audioContext();
+  const NOTE_S = 0.075;
+  const notes = kind === "start" ? [587.33, 880] : [880, 587.33]; // D5 → A5
+
+  const out = panNode(context, 0);
+  const begin = context.currentTime;
+
+  notes.forEach((hz, i) => {
+    const osc = context.createOscillator();
+    const gain = context.createGain();
+    osc.type = "sine";
+    osc.frequency.value = hz;
+
+    // Well below the alarm's 0.35: this is information, not a warning. Ramped
+    // at both ends because a hard edge clicks, and a click reads as a fault.
+    const at = begin + i * NOTE_S;
+    gain.gain.setValueAtTime(0, at);
+    gain.gain.linearRampToValueAtTime(0.14, at + 0.012);
+    gain.gain.setValueAtTime(0.14, at + NOTE_S - 0.02);
+    gain.gain.linearRampToValueAtTime(0, at + NOTE_S);
+
+    osc.connect(gain).connect(out);
+    osc.start(at);
+    osc.stop(at + NOTE_S);
+  });
+
+  const total = NOTE_S * notes.length;
+  duckProximity(begin, total);
+  return total;
 }
 
 // ---------------------------------------------------------------------------

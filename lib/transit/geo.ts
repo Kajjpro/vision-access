@@ -34,12 +34,44 @@ export const MAX_MATCH_M = 150;
  */
 export const SAME_NAME_RADIUS_M = 200;
 
+/**
+ * A fix worse than this cannot identify a stop at all.
+ *
+ * At ±500 m the correct stop is the top candidate only 30 % of the time even
+ * with a widened search, and a desktop browser geolocating by IP reports
+ * kilometres. Past this we say the SIGNAL is bad rather than that no stop is
+ * nearby — those need opposite actions from the user (wait / move into the
+ * open, versus walk somewhere else), and sending someone the wrong way is the
+ * concrete harm.
+ */
+export const UNUSABLE_ACCURACY_M = 500;
+
+/**
+ * Accuracy below which the top candidate can be stated without a hedge.
+ *
+ * Measured against the real 923 stops with simulated GPS error: at ±50 m the
+ * nearest candidate is the true stop 91 % of the time; by ±150 m that is 74 %,
+ * which is not a claim to make confidently to someone who cannot check it.
+ */
+export const CONFIDENT_ACCURACY_M = 60;
+
 export type StopCandidate = { stop: Stop; distanceM: number };
+
+/**
+ * How much to trust `candidates[0]`.
+ *
+ * `low` does not mean useless — the right stop is in the top three ~100 % of
+ * the time up to ±300 m. It means the caller must OFFER the list rather than
+ * assert the first entry, and must speak the hedge.
+ */
+export type MatchConfidence = "high" | "low";
 
 export type NearestResult =
   | { kind: "none"; nearestDistanceM: number | null }
-  | { kind: "ambiguous"; sharedName: string; candidates: StopCandidate[] }
-  | { kind: "single"; candidates: StopCandidate[] };
+  /** The fix itself is too coarse to say anything about stops. */
+  | { kind: "unusable-fix"; accuracyM: number }
+  | { kind: "ambiguous"; sharedName: string; candidates: StopCandidate[]; confidence: MatchConfidence }
+  | { kind: "single"; candidates: StopCandidate[]; confidence: MatchConfidence };
 
 /** All stops within a radius, nearest first. */
 export function stopsWithin(
@@ -77,9 +109,36 @@ export function normalizeName(name: string): string {
 export function findNearestStop(
   position: { lat: number; lon: number },
   stops: Stop[],
-  { maxMatchM = MAX_MATCH_M, sameNameRadiusM = SAME_NAME_RADIUS_M } = {},
+  {
+    maxMatchM = MAX_MATCH_M,
+    sameNameRadiusM = SAME_NAME_RADIUS_M,
+    /**
+     * Reported GPS accuracy in metres. Omit only where no fix is involved.
+     *
+     * THE SEARCH RADIUS MUST SCALE WITH THIS. A fixed 150 m is correct only for
+     * a good fix: it assumes the reported position IS the position. At ±200 m
+     * the true location can be 200 m from what the phone says, so a 150 m
+     * search finds nothing 29 % of the time and the app reports "no stop
+     * nearby" while the user stands at one. Widening by the accuracy takes that
+     * to 0 %, and the true stop is in the top three ~100 % of the time up to
+     * ±300 m — which is why the caller offers a list rather than one answer.
+     */
+    accuracyM,
+  }: { maxMatchM?: number; sameNameRadiusM?: number; accuracyM?: number } = {},
 ): NearestResult {
-  const inRange = stopsWithin(position, stops, maxMatchM);
+  // A fix this coarse says nothing about which stop we are at, and pretending
+  // otherwise produces a confident wrong name.
+  if (accuracyM !== undefined && accuracyM > UNUSABLE_ACCURACY_M) {
+    return { kind: "unusable-fix", accuracyM };
+  }
+
+  // Cap the widening so one absurd fix cannot pull in half the city.
+  const slack = Math.min(accuracyM ?? 0, UNUSABLE_ACCURACY_M);
+  const searchRadiusM = maxMatchM + slack;
+  const confidence: MatchConfidence =
+    accuracyM === undefined || accuracyM <= CONFIDENT_ACCURACY_M ? "high" : "low";
+
+  const inRange = stopsWithin(position, stops, searchRadiusM);
 
   if (inRange.length === 0) {
     let nearest: number | null = null;
@@ -94,15 +153,15 @@ export function findNearestStop(
   // change that creates a new shared-name pair is handled without a code change.
   const best = inRange[0];
   const bestName = normalizeName(best.stop.name);
-  const sameName = stopsWithin(position, stops, sameNameRadiusM).filter(
+  const sameName = stopsWithin(position, stops, sameNameRadiusM + slack).filter(
     (c) => normalizeName(c.stop.name) === bestName,
   );
 
   if (sameName.length > 1) {
-    return { kind: "ambiguous", sharedName: best.stop.name, candidates: sameName };
+    return { kind: "ambiguous", sharedName: best.stop.name, candidates: sameName, confidence };
   }
 
-  return { kind: "single", candidates: inRange };
+  return { kind: "single", candidates: inRange, confidence };
 }
 
 /**

@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
-import { CHIMEGE_ALLOWED, loadNumberWords, stopNameToSpeech, toSpeechText } from "./speech";
+import { CARDINALS, CHIMEGE_ALLOWED, loadNumberWords, stopNameToSpeech, toSpeechText } from "./speech";
 
 const table = loadNumberWords(JSON.parse(readFileSync("data/number-words.json", "utf8")));
 const stops: { id: string; name: string }[] = JSON.parse(
@@ -113,4 +113,59 @@ test("digits are preserved for engines that expand them, and dropped for those t
   const chimege = stopNameToSpeech("19-р байр /Хойд/", table, CHIMEGE_ALLOWED);
   assert.ok(chimege.ok);
   assert.equal(chimege.text, "арван есдүгээр байр, Хойд");
+});
+
+// ------------------------------------------------------- attributive numerals
+
+/**
+ * THE FORMS A NUMERAL TAKES BEFORE A NOUN.
+ *
+ * Pinned against the reviewed table in CLAUDE.md, digit for digit, because the
+ * previous version of `CARDINALS` shipped the standalone forms and every
+ * countdown the app has ever spoken was ungrammatical: `гурав буудал үлдлээ`,
+ * `тав минутын дараа`. Nothing in the code failed, nothing looked wrong on
+ * screen, and the only detector was a Mongolian speaker listening.
+ *
+ * Written out rather than generated from the same helper the source uses — a
+ * test that derives its expectation the same way as the code proves only that
+ * the code is self-consistent.
+ */
+const REVIEWED_ATTRIBUTIVE: Record<number, string> = {
+  1: "нэгэн", 2: "хоёр", 3: "гурван", 4: "дөрвөн", 5: "таван",
+  6: "зургаан", 7: "долоон", 8: "найман", 9: "есөн", 10: "арван",
+  11: "арван нэгэн", 12: "арван хоёр", 13: "арван гурван", 14: "арван дөрвөн",
+  15: "арван таван", 16: "арван зургаан", 17: "арван долоон", 18: "арван найман",
+  19: "арван есөн", 20: "хорин",
+  21: "хорин нэгэн", 22: "хорин хоёр", 23: "хорин гурван", 24: "хорин дөрвөн",
+  25: "хорин таван", 26: "хорин зургаан", 27: "хорин долоон", 28: "хорин найман",
+  29: "хорин есөн", 30: "гучин",
+  31: "гучин нэгэн", 32: "гучин хоёр", 33: "гучин гурван", 34: "гучин дөрвөн",
+  35: "гучин таван", 36: "гучин зургаан", 37: "гучин долоон", 38: "гучин найман",
+  39: "гучин есөн", 40: "дөчин",
+};
+
+test("REGRESSION: cardinals are attributive — 'гурван буудал', never 'гурав буудал'", () => {
+  assert.deepEqual(CARDINALS, REVIEWED_ATTRIBUTIVE);
+});
+
+test("no standalone form survives anywhere in the table", () => {
+  // The eight that actually differ. `хоёр` is identical in both forms, so it is
+  // not listed; catching it would need the whole phrase, not the numeral.
+  const standalone = ["гурав", "дөрөв", "тав", "зургаа", "долоо", "найм", "ес", "арав", "хорь", "гуч", "дөч"];
+  for (const [n, word] of Object.entries(CARDINALS)) {
+    for (const bad of standalone) {
+      assert.ok(
+        !new RegExp(`(^|\\s)${bad}(\\s|$)`).test(word),
+        `num_${n} is "${word}" — contains the standalone form "${bad}"`,
+      );
+    }
+  }
+});
+
+test("every cardinal is renderable by the engines", () => {
+  // Same gate the stop names pass: a digit or Latin letter here would 400 on
+  // Chimege and be read wrong by Azure.
+  for (const [n, word] of Object.entries(CARDINALS)) {
+    assert.ok(CHIMEGE_ALLOWED.test(word), `num_${n} "${word}" contains a rejected character`);
+  }
 });

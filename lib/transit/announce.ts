@@ -17,39 +17,79 @@
  * that drops the hedge, and it is checked here, once.
  */
 import type { Announcement, Priority } from "./audio-queue";
+import { countdownFor, countdownKeys, type Countdown } from "./eta";
 import type { Arrival, DegradedReason, Route, Stop } from "./types";
 
-/** Cardinals rendered as clips are 1..40; past that we speak no number. */
-export const MAX_SPOKEN_NUMBER = 40;
+/**
+ * Cardinals rendered as clips are 1..40; past that we speak no number.
+ *
+ * Owned by eta.ts and re-exported here, where callers have always found it. Two
+ * separate constants for one fact about the rendered clip set is one edit away
+ * from a `num_41` that resolves to silence in the middle of a sentence.
+ */
+export { MAX_SPOKEN_NUMBER } from "./eta";
 
 export const stopKey = (stopId: string) => `stop_${stopId}`;
 export const routeKey = (routeId: string) => `route_${routeId}`;
 export const numberKey = (n: number) => `num_${n}`;
 
+/**
+ * HOW LONG EACH KIND OF SENTENCE STAYS TRUE.
+ *
+ * `Announcement.expiresAt` has no default, so every builder here has to answer
+ * this — and gathering the answers into one table is what makes them reviewable
+ * against each other rather than guessed at eleven times.
+ *
+ * The three lifetimes are a claim about the WORLD, not about audio latency:
+ *
+ *   IMMEDIATE  the whole value is timeliness. "Одоо буугаарай" arriving after
+ *              the doors close is not merely late, it is a false instruction.
+ *              Shorter than one inter-stop interval on any UB route.
+ *   ROUTINE    a count or a position, true until the bus moves. Roughly the
+ *              time it takes to cover a stop spacing in traffic.
+ *   STATE      a condition rather than a moment — a degradation, the stop you
+ *              are standing at. Still true a minute later.
+ *
+ * Every one of these is well clear of a normal queue depth (utterances run
+ * 2–4 s), so an expiry means the world moved on, never that the queue was busy.
+ */
+export const TTL = {
+  IMMEDIATE: 12_000,
+  ROUTINE: 20_000,
+  STATE: 60_000,
+} as const;
+
 /** "Та … буудал дээр байна" wrapped around the stop name clip. */
-export function announceAtStop(stop: Stop, priority: Priority = "normal"): Announcement {
+export function announceAtStop(
+  stop: Stop,
+  priority: Priority = "normal",
+  now: number = Date.now(),
+): Announcement {
   return {
     keys: ["bus_you_are_at", stopKey(stop.id), "bus_at_stop_suffix"],
     priority,
     dedupeKey: "at-stop",
+    expiresAt: now + TTL.STATE,
     label: `at ${stop.name}`,
   };
 }
 
-export function announceNoStopNearby(): Announcement {
+export function announceNoStopNearby(now: number = Date.now()): Announcement {
   return {
     keys: ["bus_no_stop_nearby"],
     priority: "normal",
     dedupeKey: "no-stop",
+    expiresAt: now + TTL.STATE,
     label: "no stop within 150 m",
   };
 }
 
-export function announceLocationUnavailable(): Announcement {
+export function announceLocationUnavailable(now: number = Date.now()): Announcement {
   return {
     keys: ["bus_location_unavailable"],
     priority: "normal",
     dedupeKey: "no-location",
+    expiresAt: now + TTL.STATE,
     label: "location unavailable",
   };
 }
@@ -57,19 +97,30 @@ export function announceLocationUnavailable(): Announcement {
 /**
  * A route, spoken.
  *
- * `spokenName` is hand-authored and may not exist yet. Rather than fall back to
- * the display label — which would send `Ч:39` somewhere it could be read as a
- * colon, or silently say nothing — an unrendered route announces the generic
- * stop phrase and reports the gap. Never silence.
+ * All 84 routes now have a rendered clip, and announce.test.ts fails the build
+ * if any loses one. The fallback below is kept as a safety net, not as the
+ * normal path — but note that it is a QUIET failure: it substitutes the generic
+ * phrase and reports the gap, so an unrendered route sounds like "нэргүй
+ * буудал" rather than crashing. That is deliberate (never silence), and it is
+ * also exactly why the whole route set went unnamed for a long time without
+ * anything appearing to be wrong. The test is what makes the gap loud.
+ *
+ * Falling back to the DISPLAY label is not an option: `Ч:39` sent to an engine
+ * is read as a colon, or rejected outright — Chimege 400s on digits and Latin.
  */
-export function announceRoute(route: Route, hasClip: (key: string) => boolean): Announcement {
+export function announceRoute(
+  route: Route,
+  hasClip: (key: string) => boolean,
+  now: number = Date.now(),
+): Announcement {
   const key = routeKey(route.id);
   if (hasClip(key)) {
-    return { keys: [key], priority: "normal", label: `route ${route.displayName}` };
+    return { keys: [key], priority: "normal", expiresAt: now + TTL.ROUTINE, label: `route ${route.displayName}` };
   }
   return {
     keys: ["bus_unnamed_stop"],
     priority: "normal",
+    expiresAt: now + TTL.ROUTINE,
     label: `route ${route.displayName} (NO CLIP — data/route-names.json unfilled)`,
   };
 }
@@ -77,34 +128,61 @@ export function announceRoute(route: Route, hasClip: (key: string) => boolean): 
 /**
  * "Ойролцоогоор N минутын дараа" — the only way a time reaches the speaker.
  *
- * Returns null above MAX_SPOKEN_NUMBER rather than inventing a reading: there
- * is no clip for 41, and a silently dropped number would leave "Ойролцоогоор …
- * минутын дараа" with a hole in the middle.
+ * `now` is a parameter, not a default read of the clock, because the countdown
+ * is derived HERE rather than carried on the arrival. A stored minute count is
+ * true only at the instant it was computed, and this app served one through a
+ * 45-second cache into a screen that held it for as long as a rider browsed —
+ * see lib/transit/eta.ts.
+ *
+ * Returns null when there is nothing honest to say: no absolute time, a bus
+ * already gone, or a countdown past the last cardinal clip. A silently dropped
+ * number would leave "Ойролцоогоор … минутын дараа" with a hole in the middle.
+ *
+ * THE HEDGE IS UNCONDITIONAL. This used to read `if (arrival.source !==
+ * "realtime")`, leaving a branch that dropped it. That branch is deleted rather
+ * than left dormant: we ship schedule-only, the City gateway is closed to us
+ * (docs/city-gateway.md), and every number reaching this function is derived
+ * from a timetable or a headway. There is no input for which an unhedged time
+ * is correct — and left as a condition it would be one plausible-looking
+ * assignment of `source: "realtime"` away from speaking a schedule guess as
+ * fact, with nothing downstream able to tell the difference. If a live feed is
+ * ever opened, the confident wording belongs on the live path in
+ * lib/transit/journey.ts, which is gated on verified freshness.
  */
 export function announceArrival(
   arrival: Arrival,
   hasClip: (key: string) => boolean,
+  now: number = Date.now(),
 ): Announcement | null {
-  if (!Number.isFinite(arrival.minutes) || arrival.minutes < 1) return null;
-  if (arrival.minutes > MAX_SPOKEN_NUMBER) return null;
+  const countdown = countdownFor(arrival, now);
+  const time = countdownKeys(countdown, hasClip);
+  if (time.length === 0) return null;
 
   const route = routeKey(arrival.routeId);
-  const keys: string[] = [];
-
-  if (hasClip(route)) keys.push(route);
-
-  // The hedge. Present unless the datum is genuinely live — which nothing in
-  // this feed currently is.
-  if (arrival.source !== "realtime") keys.push("bus_approx_prefix");
-
-  keys.push(numberKey(arrival.minutes), "bus_minutes_suffix");
+  const keys = hasClip(route) ? [route, ...time] : [...time];
 
   return {
     keys,
     priority: "normal",
-    dedupeKey: `arrival-${arrival.routeId}`,
-    label: `${arrival.routeDisplayName} ~${arrival.minutes} min (${arrival.source})`,
+    // Carries the value, so an unchanged countdown collapses and a changed one
+    // is heard. A key of just the route id would suppress every later update.
+    dedupeKey: `arrival-${arrival.routeId}-${countdown.kind === "minutes" ? countdown.minutes : countdown.kind}`,
+    // A countdown is only true until the next minute turns over. Shorter than
+    // ROUTINE for that reason: this is the one sentence in the app whose value
+    // changes on a clock rather than on the bus moving.
+    expiresAt: now + TTL.IMMEDIATE,
+    label: `${arrival.routeDisplayName} ${describeCountdown(countdown)} (${arrival.source})`,
   };
+}
+
+/** For the on-screen debug panel. Never spoken. */
+export function describeCountdown(c: Countdown): string {
+  switch (c.kind) {
+    case "minutes": return `~${c.minutes} мин`;
+    case "due": return "одоо";
+    case "gone": return "өнгөрсөн";
+    case "unknown": return "?";
+  }
 }
 
 /**
@@ -124,11 +202,15 @@ const DEGRADED_PHRASE: Record<DegradedReason, string> = {
   "no-service": "bus_route_info_unavailable",
 };
 
-export function announceDegraded(reason: DegradedReason): Announcement {
+export function announceDegraded(reason: DegradedReason, now: number = Date.now()): Announcement {
   return {
     keys: [DEGRADED_PHRASE[reason]],
     priority: "normal",
     dedupeKey: "degraded",
+    // A degradation notice is spoken ONCE per cause (CLAUDE.md), so the
+    // cooldown is what enforces that rather than the caller remembering to.
+    cooldownMs: 5 * 60_000,
+    expiresAt: now + TTL.STATE,
     label: `degraded: ${reason}`,
   };
 }
@@ -141,11 +223,13 @@ export function announceDegraded(reason: DegradedReason): Announcement {
  * their only accurate source. Critical priority, because continuing to trust a
  * frozen counter is how someone rides past their stop.
  */
-export function announceTrackingDegraded(): Announcement {
+export function announceTrackingDegraded(now: number = Date.now()): Announcement {
   return {
     keys: ["bus_tracking_degraded"],
     priority: "critical",
     dedupeKey: "tracking-degraded",
+    cooldownMs: 5 * 60_000,
+    expiresAt: now + TTL.STATE,
     label: "tracking degraded — manual advance surfaced",
   };
 }
@@ -180,14 +264,21 @@ export function announceRemaining(
   remaining: number,
   stop: { id: string; name: string },
   hasClip: (key: string) => boolean,
+  now: number = Date.now(),
 ): Announcement | null {
   const name = hasClip(stopKey(stop.id)) ? stopKey(stop.id) : "bus_unnamed_stop";
+  const haptic = vibrationFor(remaining) ?? undefined;
 
   if (remaining < 0) {
     return {
       keys: ["bus_passed_stop"],
       priority: "critical",
+      earcon: "urgent",
+      haptic,
       dedupeKey: "overshoot",
+      // Long: an overshoot stays true and stays actionable. Unlike a count, it
+      // does not stop being the right thing to say a minute later.
+      expiresAt: now + TTL.STATE,
       label: "PASSED the destination",
     };
   }
@@ -196,7 +287,13 @@ export function announceRemaining(
     return {
       keys: [name, "bus_get_off_now"],
       priority: "critical",
+      earcon: "urgent",
+      haptic,
       dedupeKey: "arrived",
+      // The shortest lifetime in the app. "Одоо буугаарай" that arrives after
+      // the doors close is not a late message, it is a wrong one — it sends
+      // someone toward a door that is shut, on a bus that is moving.
+      expiresAt: now + TTL.IMMEDIATE,
       label: `ARRIVED at ${stop.name}`,
     };
   }
@@ -205,7 +302,10 @@ export function announceRemaining(
     return {
       keys: ["bus_next_stop", name, "bus_get_ready"],
       priority: "normal",
+      earcon: "alert",
+      haptic,
       dedupeKey: "remaining-1",
+      expiresAt: now + TTL.ROUTINE,
       label: `next stop ${stop.name} — get ready`,
     };
   }
@@ -214,7 +314,10 @@ export function announceRemaining(
     return {
       keys: [numberKey(remaining), "bus_stops_remaining"],
       priority: "normal",
+      earcon: "soft",
+      haptic,
       dedupeKey: `remaining-${remaining}`,
+      expiresAt: now + TTL.ROUTINE,
       label: `${remaining} stops remaining`,
     };
   }
@@ -225,11 +328,19 @@ export function announceRemaining(
 /**
  * Vibration pattern per countdown step, in the same place as the speech so the
  * two cannot drift apart. Milliseconds, navigator.vibrate format.
+ *
+ * The count is FELT as well as heard: three pulses at three stops, two at two.
+ * A rider with the phone in a pocket and one earbud against Peace Avenue gets
+ * the same number through either channel, which is the parallel-channel rule —
+ * any one of speech, earcon or haptic must be enough to act on.
  */
 export function vibrationFor(remaining: number): number[] | null {
   if (remaining < 0) return [200, 100, 200, 100, 200];
   if (remaining === 0) return [800];
   if (remaining === 1) return [150];
+  // Countable pulses: short, evenly spaced, and as many as there are stops.
+  if (remaining === 2) return [60, 90, 60];
+  if (remaining === 3) return [60, 90, 60, 90, 60];
   return null;
 }
 

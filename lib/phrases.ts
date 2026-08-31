@@ -235,6 +235,56 @@ export const PHRASES: Phrase[] = [
   { id: "ui_wait_searching", mn: "Буудлыг хайж байна", en: "Looking for your stop", kind: "ui" },
   { id: "ui_wait_say_destination", mn: "Хаашаа явахаа хэлэх", en: "Say where you are going", kind: "ui" },
   { id: "ui_wait_browse_routes", mn: "Чиглэлүүдийг сонсох", en: "Hear the routes", kind: "ui" },
+  // --- journey flow (destination-first). Rendered by scripts/render-ui-audio.ts.
+  { id: "ui_journey_ask_destination", mn: "Хаашаа явах вэ?", en: "Where are you going?", kind: "ui" },
+  { id: "ui_journey_planning", mn: "Зам хайж байна", en: "Finding a route", kind: "ui" },
+  { id: "ui_journey_route_needed", mn: "хэрэгтэй", en: "… is what you need", kind: "ui" },
+  { id: "ui_journey_stops_to_travel", mn: "буудал явна", en: "… stops to travel", kind: "ui" },
+  { id: "ui_journey_no_route", mn: "Тэр буудал руу энэ буудлаас очих чиглэл алга байна", en: "No route from this stop reaches that stop", kind: "ui" },
+  { id: "ui_journey_transfer_warning", mn: "Нэг удаа солино", en: "You will change once", kind: "ui" },
+  { id: "ui_journey_transfer_at", mn: "Дараа нь", en: "Then, at …", kind: "ui" },
+  { id: "ui_journey_live_stops_away", mn: "буудлын зайд", en: "… stops away", kind: "ui" },
+  { id: "ui_journey_approaching", mn: "ойртож байна", en: "… is approaching", kind: "ui" },
+  { id: "ui_journey_arrived", mn: "ирлээ", en: "… has arrived", kind: "ui" },
+  { id: "ui_journey_estimate_only", mn: "Тооцоолсон хугацаа", en: "This is an estimate", kind: "ui" },
+  { id: "ui_journey_live_unavailable", mn: "Автобусны байршил одоогоор алга байна", en: "Live bus positions are unavailable right now", kind: "ui" },
+  { id: "ui_journey_live_lost", mn: "Автобусны байршил тасарлаа. Цагийн хуваарь руу шилжлээ", en: "Live positions lost — switched to the timetable", kind: "ui" },
+  { id: "ui_journey_next_after", mn: "Дараагийнх нь", en: "The one after that …", kind: "ui" },
+  { id: "ui_journey_boarded_detected", mn: "Автобусанд суулаа", en: "You have boarded", kind: "ui" },
+  { id: "ui_journey_boarded_undo", mn: "Суугаагүй бол дээш шудрана уу", en: "If you did not board, swipe up", kind: "ui" },
+  { id: "ui_journey_boarded_undone", mn: "Дахин хүлээж байна", en: "Waiting again", kind: "ui" },
+  { id: "ui_journey_board_manually", mn: "Би автобусанд сууж байна", en: "I am on the bus", kind: "ui" },
+  { id: "ui_journey_plate_prefix", mn: "Улсын дугаар", en: "Plate number", kind: "ui" },
+  { id: "ui_journey_passed", mn: "өнгөрлөө", en: "… has passed", kind: "ui" },
+  { id: "ui_journey_status", mn: "Одоогийн байдал", en: "Current status", kind: "ui" },
+  { id: "ui_journey_feed_disagrees", mn: "Автобусны мэдээлэл зөрж байна. Байршлаар тоолж байна", en: "The live data disagrees — counting by GPS", kind: "ui" },
+  { id: "ui_journey_finished", mn: "Аялал дууслаа", en: "Journey complete", kind: "ui" },
+  { id: "ui_journey_resumed", mn: "Аяллаа үргэлжлүүлж байна", en: "Resuming your journey", kind: "ui" },
+  // --- location acquisition. Rendered by scripts/render-ui-audio.ts.
+  { id: "ui_wait_gps_weak", mn: "Байршил тодорхойгүй байна. Задгай газарт гарч түр хүлээнэ үү.", en: "Location is unclear. Please move into the open and wait a moment.", kind: "ui" },
+  { id: "ui_wait_still_locating", mn: "Байршлыг нарийсгаж байна", en: "Narrowing down your location", kind: "ui" },
+  { id: "ui_wait_approximate_stop", mn: "Магадгүй энэ буудал", en: "Possibly this stop", kind: "ui" },
+
+  // --- spoken journey capture. Rendered by scripts/render-ui-audio.ts.
+  //
+  // These have to be HERE, not merely on disk: loadClips() resolves an id by
+  // filtering this array, so a rendered wav that is not registered is fetched
+  // by nobody and plays as silence. That is exactly how the whole voice-journey
+  // flow came to be mute — the phrases existed in lib/ui/announcements.ts, the
+  // flow asked for them by id, and no clip was ever loaded for any of them.
+  { id: "ui_vj_ask_origin", mn: "Та одоо аль зогсоол дээр байна вэ?", en: "Which stop are you at now?", kind: "ui" },
+  { id: "ui_vj_hold_to_speak", mn: "Дэлгэцийг дараад барьж байгаад ярина уу.", en: "Press and hold the screen, then speak.", kind: "ui" },
+  { id: "ui_vj_which_one", mn: "Аль нь вэ?", en: "Which one?", kind: "ui" },
+  { id: "ui_vj_or", mn: "эсвэл", en: "or", kind: "ui" },
+  { id: "ui_vj_from", mn: "аас", en: "from … (case marker)", kind: "ui" },
+  { id: "ui_vj_to", mn: "руу", en: "to … (case marker)", kind: "ui" },
+  { id: "ui_vj_confirm_suffix", mn: "явах гэж байна. Зөв үү?", en: "… you are going. Is that right?", kind: "ui" },
+  { id: "ui_vj_board_route", mn: "Та дугаар", en: "Take number …", kind: "ui" },
+  { id: "ui_vj_board_route_suffix", mn: "автобусанд сууна", en: "… bus", kind: "ui" },
+  { id: "ui_vj_same_stop", mn: "Та аль хэдийн тэнд байна", en: "You are already there", kind: "ui" },
+  { id: "ui_vj_wrong_direction", mn: "Эсрэг чиглэлд байна. Солих уу?", en: "That is the opposite direction. Swap them?", kind: "ui" },
+  { id: "ui_vj_mic_denied", mn: "Микрофон ашиглах зөвшөөрөл алга байна", en: "No microphone permission", kind: "ui" },
+  { id: "ui_vj_use_list_instead", mn: "Жагсаалтаас сонгоно уу", en: "Choose from the list instead", kind: "ui" },
 ];
 
 /** Model class order. An index into this IS the classId in the ONNX export. */

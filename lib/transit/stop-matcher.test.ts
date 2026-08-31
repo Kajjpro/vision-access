@@ -285,10 +285,27 @@ test("arrival and overshoot are critical and deduped", () => {
 });
 
 test("vibration escalates with urgency", () => {
-  assert.equal(vibrationFor(3), null);
+  // 3 and 2 now carry COUNTABLE pulses rather than nothing — the phone in a
+  // pocket must be able to deliver the number without the earbud. Both were
+  // silent before; the alighting ladder in §5.2 gives them three and two.
+  assert.equal((vibrationFor(3) ?? []).filter((_, i) => i % 2 === 0).length, 3, "three pulses at three stops");
+  assert.equal((vibrationFor(2) ?? []).filter((_, i) => i % 2 === 0).length, 2, "two pulses at two stops");
   assert.deepEqual(vibrationFor(1), [150]);
   assert.deepEqual(vibrationFor(0), [800]);
   assert.equal((vibrationFor(-1) ?? []).length, 5, "overshoot must be unmistakable");
+  // Nothing above the ladder: a haptic every stop of a 36-stop run is a buzz
+  // the rider learns to ignore, which costs the three that matter.
+  assert.equal(vibrationFor(4), null);
+});
+
+test("the count you FEEL matches the count you HEAR", () => {
+  // Parallel channels (§5): speech, earcon and haptic carry the same state, and
+  // any one alone must be enough to act on. A haptic saying "two" under an
+  // announcement saying "three" is worse than no haptic at all.
+  for (const remaining of [2, 3]) {
+    const pulses = (vibrationFor(remaining) ?? []).filter((_, i) => i % 2 === 0).length;
+    assert.equal(pulses, remaining, `${remaining} stops remaining buzzed ${pulses} times`);
+  }
 });
 
 // ----------------------------------------------- 9. ALL ROUTES sweep
