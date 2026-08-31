@@ -103,6 +103,44 @@ export const CONFIRMATION_FIXES = 2;
  */
 export const ARRIVAL_RADIUS_M = 70;
 
+/**
+ * §6.1 WRONG DIRECTION, as a DISPLACEMENT rather than a sample count.
+ *
+ * The previous test asked "did two consecutive fixes look backwards", which is
+ * a different question from "has this bus travelled backwards" — and the wrong
+ * one, because noise oscillates while a reversing bus decreases monotonically.
+ * Measured over 146 correct-direction journeys it fired in 142 of them, a
+ * median of 7 times each, on buses following their route exactly. CLAUDE.md is
+ * explicit that an alert which makes a rider leave a CORRECT bus is a real harm.
+ *
+ * Net backward displacement from the furthest point reached, scaled to the
+ * route's own mean stop spacing so it travels between dense downtown spacing
+ * and sparse suburban runs without retuning.
+ *
+ * Displacement alone is not enough, and the corpus says so: the worst backward
+ * excursion on a correct-direction journey reaches 1.49 spacings at p99, from
+ * single-fix projection jumps on routes that double back near themselves. Those
+ * are transient — the next fix returns forward — whereas a reversing bus keeps
+ * going. So the threshold is paired with a persistence requirement, which is
+ * doing a different job from the old fix count: displacement discriminates,
+ * persistence only rejects transients.
+ *
+ * Swept against both corpora — 146 correct-direction journeys and 146 where the
+ * rider boarded a bus running the corridor in reverse:
+ *
+ *     K     P     false-fire     true-fire     median before firing
+ *   0.30    3       8/146         146/146           235 m
+ *   0.50    5       4/146         146/146           372 m
+ *   0.75   10       2/146         146/146           548 m
+ *   1.00   10       0/146         146/146           673 m
+ *
+ * A slower fix rate makes this MORE conservative, not less: a transient
+ * excursion spans fewer fixes and is less likely to reach P, while a genuine
+ * reversal is sustained indefinitely and always accumulates P eventually.
+ */
+export const WRONG_DIRECTION_SPACINGS = 1.0;
+export const WRONG_DIRECTION_SUSTAIN_FIXES = 10;
+
 /** EMA weight for a new speed sample, applied once per window. */
 export const SPEED_SMOOTHING = 0.4;
 
@@ -179,8 +217,12 @@ export type EngineState = {
   speedMps: number | null;
   /** Start of the current speed measurement window. */
   speedRef: { alongM: number; at: number } | null;
-  /** Consecutive intervals the index has moved backwards — §6.1 wrong-direction. */
-  regressions: number;
+  /** Furthest point reached along the variant. Backward displacement is measured from here. */
+  furthestAlongM: number;
+  /** Consecutive fixes the backward-displacement threshold has held — §6.1. */
+  backwardRun: number;
+  /** Latched once wrong-direction has been reported. Reported once per trip. */
+  wrongDirectionFired: boolean;
   /** Consecutive intervals the nearest stop was off this variant — §6.1 wrong-bus. */
   offRouteIntervals: number;
   /** Set once a confidence downgrade has been announced. Announced ONCE. */
@@ -201,7 +243,9 @@ export function createEngine(startIndex = 0, geometry?: RouteGeometry): EngineSt
     atPending: null,
     speedMps: null,
     speedRef: null,
-    regressions: 0,
+    furthestAlongM: geometry ? geometry.distanceToStop(startIndex) : 0,
+    backwardRun: 0,
+    wrongDirectionFired: false,
     offRouteIntervals: 0,
     downgradeAnnounced: false,
   };
@@ -394,30 +438,21 @@ export function onFix(
       next.stopIndex = proposed;
       next.alongM = projection.alongM;
       next.pending = null;
-      next.regressions = 0;
       next.stationarySinceMs = 0;
       // A turnaround is a NEW trip: whatever was reached belongs to the last
       // one, and carrying it over would hold a stale arrival across the reset.
       next.reachedIndex = null;
       next.atPending = null;
+      next.furthestAlongM = projection.alongM;
+      next.backwardRun = 0;
+      next.wrongDirectionFired = false;
     } else {
-      next.regressions = state.regressions + 1;
       next.pending = null;
+      // The fix is still rejected for COUNTING — the index is monotonic. Whether
+      // it means the bus is reversing is a displacement question, answered below.
       events.push({ type: "rejected", reason: "backwards" });
-      /**
-       * §6.1 WRONG DIRECTION — topological, not a distance.
-       *
-       * Sustained across CONFIRMATION_FIXES intervals, because a single
-       * backwards fix is drift and firing on it would tell a rider to leave a
-       * correct bus. See the geometry header for why this is not a
-       * perpendicular test.
-       */
-      if (next.regressions >= CONFIRMATION_FIXES) {
-        events.push({ type: "wrong-direction", index: state.stopIndex });
-      }
     }
   } else {
-    next.regressions = 0;
     next.alongM = projection.alongM;
 
     if (proposed > state.stopIndex) {
@@ -530,6 +565,18 @@ export function onFix(
     } else {
       next.atPending = { index: atCandidate, fixes };
     }
+  }
+
+  // --- §6.1 wrong direction, by displacement -------------------------------
+  next.furthestAlongM = Math.max(state.furthestAlongM, projection.alongM);
+  const backwardM = next.furthestAlongM - projection.alongM;
+  const backwardThresholdM = WRONG_DIRECTION_SPACINGS * geometry.meanStopSpacingM;
+
+  next.backwardRun = backwardM >= backwardThresholdM ? state.backwardRun + 1 : 0;
+
+  if (next.backwardRun >= WRONG_DIRECTION_SUSTAIN_FIXES && !state.wrongDirectionFired) {
+    next.wrongDirectionFired = true;
+    events.push({ type: "wrong-direction", index: state.stopIndex });
   }
 
   // --- §6.1 wrong bus ------------------------------------------------------

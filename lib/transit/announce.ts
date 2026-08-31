@@ -281,6 +281,16 @@ export function announceStopSummary(
  * genuinely need twice inside a single stop dwell, and its own `expiresAt` of
  * TTL.IMMEDIATE already stops a stale copy reaching the front of the queue.
  */
+/**
+ * How many stops past the destination are announced before falling silent.
+ *
+ * Overshoot used to fire once and then say nothing, which left the rider in
+ * silence from the moment they most needed orientation. But a rider who has
+ * decided to ride on to the terminus does not need telling every 90 s either,
+ * so the repeat is bounded and the long-press status query covers the rest.
+ */
+export const OVERSHOOT_REPEAT_STOPS = 3;
+
 const RUNG_COOLDOWN_MS = {
   overshoot: 5 * 60_000,
   arrived: 2 * 60_000,
@@ -297,17 +307,52 @@ export function announceRemaining(
   const haptic = vibrationFor(remaining) ?? undefined;
 
   if (remaining < 0) {
+    const past = -remaining;
+    // Bounded: past the window the rider has chosen to stay on, and repeating
+    // is noise rather than orientation.
+    if (past > OVERSHOOT_REPEAT_STOPS) return null;
+
+    if (past === 1) {
+      /**
+       * The first overshoot carries the guidance line, spoken once.
+       *
+       * Gated on the clip existing so that until it is rendered this degrades
+       * to exactly today's announcement rather than to silence — an
+       * unrendered key is dropped without a sound, so introducing one
+       * ungated would delete the only thing this says.
+       */
+      const guidance = hasClip("bus_get_off_next_stop") ? ["bus_get_off_next_stop"] : [];
+      return {
+        keys: ["bus_passed_stop", ...guidance],
+        priority: "critical",
+        earcon: "urgent",
+        haptic,
+        dedupeKey: "overshoot-1",
+        cooldownMs: RUNG_COOLDOWN_MS.overshoot,
+        // Long: an overshoot stays true and stays actionable. Unlike a count, it
+        // does not stop being the right thing to say a minute later.
+        expiresAt: now + TTL.STATE,
+        label: "PASSED the destination",
+      };
+    }
+
+    /**
+     * "You are now N stops past your stop."
+     *
+     * ALL KEYS OR NONE, following countdownKeys: a suffix whose number failed
+     * to decode leaves a sentence with a hole in the middle, which sounds like
+     * a number that was said and misheard rather than one that was never said.
+     */
+    if (!hasClip("bus_stops_past_suffix") || !hasClip(numberKey(past))) return null;
     return {
-      keys: ["bus_passed_stop"],
-      priority: "critical",
-      earcon: "urgent",
+      keys: [numberKey(past), "bus_stops_past_suffix"],
+      priority: "normal",
+      earcon: "alert",
       haptic,
-      dedupeKey: "overshoot",
+      dedupeKey: `overshoot-${past}`,
       cooldownMs: RUNG_COOLDOWN_MS.overshoot,
-      // Long: an overshoot stays true and stays actionable. Unlike a count, it
-      // does not stop being the right thing to say a minute later.
-      expiresAt: now + TTL.STATE,
-      label: "PASSED the destination",
+      expiresAt: now + TTL.ROUTINE,
+      label: `${past} stops past the destination`,
     };
   }
 
