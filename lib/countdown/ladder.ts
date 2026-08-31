@@ -33,7 +33,32 @@ export type LadderInput = {
   /** The stop being counted down TO. */
   destination: LadderStop;
   now: number;
+  /**
+   * Predicted seconds to the destination, from `secondsToDestination`.
+   *
+   * Optional: without it rung 1 always speaks, which is the old behaviour and a
+   * safe default — the floor below only ever REMOVES a preparation cue that had
+   * no room to be one.
+   */
+  secondsToDestination?: number | null;
 };
+
+/**
+ * Minimum lead rung 1 needs to be worth saying, seconds.
+ *
+ * Picked from the interval distribution over 310 simulated journeys rather than
+ * from intuition. Sorted, the intervals run 1, 14, 17, 21, 25, 26, 28, 30, 30,
+ * 30, 31 … — an outlier, a sparse tail, then a dense body from 25 s up. 20 s
+ * sits in the empty space between 17 and 21, at roughly the 1st percentile, so
+ * it removes the tail without touching the body of the distribution.
+ *
+ * It is also about four times the length of the rung-1 utterance itself. That
+ * matters concretely: rung 1 is three clips plus a 250 ms earcon lead, so it
+ * occupies ~5 s — and rung 0 is `critical`, which preempts mid-clip. Below the
+ * floor the rider does not get two signals, they get a truncated one followed
+ * by the real one, which is worse than the real one alone.
+ */
+export const RUNG1_MIN_LEAD_S = 20;
 
 /**
  * The rungs of the alighting ladder, per §5.2.
@@ -81,6 +106,28 @@ export function alightingAnnouncement(
 
   const rung = alightingRung(remaining);
   if (rung === null) return null;
+
+  /**
+   * THE PREPARATION CUE NEEDS ROOM TO BE ONE.
+   *
+   * Where the last two stops sit close together, "дараагийн буудал … бэлдээрэй"
+   * and "Одоо буугаарай" collapse into the same moment. A blind rider then gets
+   * a preparation signal and an action signal simultaneously, which carries less
+   * information than the action signal alone — and, being lower priority, the
+   * preparation one is cut off mid-word by the action one.
+   *
+   * Suppressed rather than moved: the time is absent from the geometry and no
+   * threshold can manufacture it. Rung 0 is untouched, so the rider still gets
+   * the instruction that matters.
+   */
+  if (
+    rung === 1 &&
+    input.secondsToDestination !== undefined &&
+    input.secondsToDestination !== null &&
+    input.secondsToDestination < RUNG1_MIN_LEAD_S
+  ) {
+    return null;
+  }
 
   // Already said at this rung. A count that sits at 2 for four minutes is one
   // announcement, not eighty.

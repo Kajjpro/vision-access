@@ -18,7 +18,7 @@
 
 import type { Announcement } from "../transit/audio-queue";
 import {
-  createEngine, isDowngrade, onFix, onTick, remainingForAlighting,
+  createEngine, isDowngrade, onFix, onTick, remainingForAlighting, secondsToDestination,
   type EngineEvent, type EngineState, type Fix,
 } from "./engine";
 import { StopChainGeometry, type GeometryStop } from "./geometry";
@@ -110,7 +110,10 @@ export function simulateJourney(options: SimulateOptions): SimulationResult {
      */
     const remaining = remainingForAlighting(state, destinationIndex);
     const announcement = alightingAnnouncement(
-      { remaining, confidence: state.confidence, destination, now },
+      {
+        remaining, confidence: state.confidence, destination, now,
+        secondsToDestination: secondsToDestination(state, geometry, destinationIndex),
+      },
       lastSpokenRemaining,
       hasClip,
     );
