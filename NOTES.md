@@ -92,6 +92,25 @@ the classes so the two cannot drift.
 Not blocked on: the capture UI, which will be the same tap → 3 frames →
 decide → speak shape as BusMode.
 
+## Deferred: return-route guidance after an overshoot
+
+When a rider misses their stop the app now says they have passed it, adds one
+guidance line, and repeats the position for three stops before falling silent
+(`OVERSHOOT_REPEAT_STOPS` in `lib/transit/announce.ts`). What it does NOT do is
+tell them how to get back.
+
+**That is cheaper than it looks.** `lib/transit/planner.ts` is offline, pure and
+instant against the baked route graph — no network, nothing to rate-limit. A
+re-plan from the rider's current position back to the original destination is an
+existing capability called with different arguments, not new work. What is
+actually missing is the Mongolian for the guidance, and a decision about whether
+to name the return route number or just say to get off and wait.
+
+The same string gap blocks the long-press status query, which today drops both
+the number and the suffix when `left` is negative (`statusNow` in
+`app/bus/ride/RideScreen.tsx`) — so after an overshoot it names two stops with no
+relationship between them.
+
 ## Open decisions
 
 - **Which detector to ship.** `public/models/yoloe-11s.onnx` is fp32 @320,

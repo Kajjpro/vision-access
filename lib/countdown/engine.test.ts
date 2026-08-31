@@ -19,6 +19,7 @@ import test from "node:test";
 
 import {
   ACCURACY_LIMIT_M, ADVANCE_THRESHOLD_M, CONFIRMATION_FIXES, confidenceFor,
+  WRONG_DIRECTION_SPACINGS, WRONG_DIRECTION_SUSTAIN_FIXES,
   createEngine, DEAD_RECKONING_LIMIT_MS, deadReckonedIndex, FRESH_MS, isDowngrade,
   LAYOVER_MS, onFix, onTick, remainingTo, STALE_MS,
   type EngineEvent, type EngineState, type Fix,
@@ -209,18 +210,55 @@ test("a fix stamped before the previous one is rejected — clock skew, not trav
 
 // -------------------------------------------------------- §6.1 direction
 
-test("sustained backwards movement fires wrong-direction, a single fix does not", () => {
+test("wrong-direction needs real backward TRAVEL, not two backward-looking samples", () => {
+  // The old rule fired on CONFIRMATION_FIXES consecutive backwards fixes, which
+  // asked "did two samples look backwards" rather than "has this bus travelled
+  // backwards". Measured over 146 correct-direction journeys it fired in 142 of
+  // them, a median of 7 times each. This encodes the displacement rule instead.
   const geometry = new StopChainGeometry(CHAIN);
-  let state = createEngine(6, geometry);
-  const back = pointAtDistance(geometry, CHAIN, geometry.distanceToStop(3));
+  const start = 6;
+  const threshold = WRONG_DIRECTION_SPACINGS * geometry.meanStopSpacingM;
+  const from = geometry.distanceToStop(start);
 
-  const first = onFix(state, { ...back, accuracyM: 10, timestamp: 1000 }, geometry, 1000);
-  state = first.state;
-  assert.ok(!first.events.some((e) => e.type === "wrong-direction"), "fired on a single drifted fix");
+  const feedAt = (state: EngineState, alongM: number, t: number) =>
+    onFix(state, { ...pointAtDistance(geometry, CHAIN, Math.max(0, alongM)), accuracyM: 10, timestamp: t }, geometry, t);
 
-  const second = onFix(state, { ...back, accuracyM: 10, timestamp: 4000 }, geometry, 4000);
-  assert.ok(second.events.some((e) => e.type === "wrong-direction"), "never fired despite sustained regression");
-  assert.equal(second.state.stopIndex, 6, "the count moved backwards");
+  // One fix well behind is drift, and drift must never fire.
+  let state = createEngine(start, geometry);
+  const single = feedAt(state, from - threshold - 50, 1000);
+  assert.ok(!single.events.some((e) => e.type === "wrong-direction"), "fired on a single drifted fix");
+
+  // A transient excursion that returns forward is the loop-route projection
+  // jump, not a reversing bus. The old fix-count rule could not tell them apart.
+  state = createEngine(start, geometry);
+  let t = 1000;
+  for (let i = 0; i < WRONG_DIRECTION_SUSTAIN_FIXES - 1; i++) {
+    state = feedAt(state, from - threshold - 50, (t += 1000)).state;
+  }
+  const recovered = feedAt(state, from, (t += 1000));
+  state = recovered.state;
+  assert.ok(!recovered.events.some((e) => e.type === "wrong-direction"), "fired on a transient excursion");
+  assert.equal(state.backwardRun, 0, "the run did not reset when the bus came forward again");
+
+  // Sustained backward travel past the threshold is the real thing.
+  state = createEngine(start, geometry);
+  let fired = false;
+  for (let i = 0; i < WRONG_DIRECTION_SUSTAIN_FIXES + 2; i++) {
+    const r = feedAt(state, from - threshold - 50 - i * 5, (t += 1000));
+    state = r.state;
+    if (r.events.some((e) => e.type === "wrong-direction")) fired = true;
+  }
+  assert.ok(fired, "never fired despite sustained backward travel");
+  assert.equal(state.stopIndex, start, "the count moved backwards");
+
+  // Reported once per trip: a repeating alert is one a rider stops hearing.
+  let again = false;
+  for (let i = 0; i < 5; i++) {
+    const r = feedAt(state, geometry.distanceToStop(1), (t += 1000));
+    state = r.state;
+    if (r.events.some((e) => e.type === "wrong-direction")) again = true;
+  }
+  assert.ok(!again, "wrong-direction repeated after it had already been reported");
 });
 
 test("wrong-bus fires only when the caller supplies the evidence", () => {

@@ -67,8 +67,14 @@ export const RUNG1_MIN_LEAD_S = 20;
  * rider stops listening to, and the value of the last three is entirely that
  * they are rare enough to be heard.
  */
-export function alightingRung(remaining: number): 3 | 2 | 1 | 0 | -1 | null {
-  if (remaining < 0) return -1;
+export function alightingRung(remaining: number): number | null {
+  /**
+   * Each overshoot depth is its OWN rung, so -1, -2 and -3 each fire once
+   * rather than collapsing into a single "you have passed it" that never
+   * repeats. Past the repeat window `announceRemaining` returns null, so the
+   * ladder falls silent without needing to know the bound itself.
+   */
+  if (remaining < 0) return remaining;
   if (remaining === 0) return 0;
   if (remaining === 1) return 1;
   if (remaining === 2) return 2;

@@ -15,6 +15,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
+import { OVERSHOOT_REPEAT_STOPS } from "../transit/announce";
 import { DEAD_RECKONING_LIMIT_MS, type Fix } from "./engine";
 import { formatTranscript, simulateJourney } from "./simulate";
 import type { GeometryStop } from "./geometry";
@@ -48,9 +49,14 @@ const DEST = 9;
 test("GOLDEN: a clean ride, from the first word to the overshoot", () => {
   /**
    * The trace drives the whole variant, so it carries on past the destination —
-   * which makes this the overshoot golden too. A rider who missed the door gets
-   * the §6.2 priority-0 line and nothing else; the count does not keep ticking
-   * at them, because there is nothing left to count down to.
+   * which makes this the overshoot golden too.
+   *
+   * A rider who missed the door gets the §6.2 priority-0 line, and it now
+   * carries the guidance clip with it. Announcing once and then falling silent
+   * left them with no orientation from the moment they most needed it, so the
+   * position repeats for OVERSHOOT_REPEAT_STOPS stops and then stops: someone
+   * who has chosen to ride on to the terminus does not need telling every 90 s,
+   * and the long-press status query covers re-orientation on request.
    */
   const fixes = asFixes(generateTrace(CHAIN, { seed: 1, noiseM: 12, speedKmh: 25 }));
   const { transcript } = simulateJourney({ chain: CHAIN, fixes, destinationIndex: DEST });
@@ -60,13 +66,28 @@ test("GOLDEN: a clean ride, from the first word to the overshoot", () => {
     `remaining=2 earcon:soft num_2 bus_stops_remaining`,
     `remaining=1 earcon:alert bus_next_stop stop_${CHAIN[DEST].id} bus_get_ready`,
     `remaining=0 earcon:urgent stop_${CHAIN[DEST].id} bus_get_off_now`,
-    `remaining=-1 earcon:urgent bus_passed_stop`,
+    `remaining=-1 earcon:urgent bus_passed_stop bus_get_off_next_stop`,
+    `remaining=-2 earcon:alert num_2 bus_stops_past_suffix`,
+    `remaining=-3 earcon:alert num_3 bus_stops_past_suffix`,
   ]);
 
-  // The overshoot is said ONCE, however far past the stop the bus goes.
+  /**
+   * The overshoot is BOUNDED, however far past the stop the bus goes. The trace
+   * drives the whole variant, so without the bound this would speak at every
+   * remaining stop — which is the failure the old announce-once rule was
+   * avoiding, and this replaces it rather than removing it.
+   */
   const overshoots = transcript.filter((l) => l.remaining < 0);
-  assert.equal(overshoots.length, 1, "the overshoot repeated every stop after the destination");
-  assert.equal(overshoots[0].priority, "critical");
+  assert.equal(overshoots.length, OVERSHOOT_REPEAT_STOPS, "the overshoot is not bounded");
+  assert.ok(
+    transcript.every((l) => l.remaining >= -OVERSHOOT_REPEAT_STOPS),
+    "spoke past the repeat window instead of falling silent",
+  );
+  assert.equal(overshoots[0].priority, "critical", "the first overshoot lost its priority");
+  assert.ok(
+    overshoots.slice(1).every((l) => l.priority === "normal"),
+    "a follow-up position update preempted like an alert",
+  );
 });
 
 test("silence above three stops — audio is not a progress bar", () => {
