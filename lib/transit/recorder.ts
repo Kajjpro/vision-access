@@ -67,6 +67,40 @@ export type Recording = {
 export const STORAGE_KEY = "va:recording";
 
 /**
+ * Session flag that arms recording. Lives here so BOTH bus screens share it.
+ *
+ * It has to be armable from the wait screen, not just the ride screen. A
+ * journey only reaches /bus/ride through `router.push("/bus/ride")`, which
+ * carries no query string — so `?record=1` on the ride URL is either lost at
+ * navigation or arrives on a screen with no handoff, which refuses to start.
+ * There was no path that had both a handoff and an armed recorder.
+ */
+export const RECORDING_FLAG = "va:record-journey";
+
+/**
+ * Arm from `?record=1`, once, and report whether the field-test UI should show.
+ *
+ * Called from a first gesture rather than a mount effect: sessionStorage does
+ * not exist during SSR, and reading it in an effect renders once without it and
+ * again with it — the second render landing while the user may already be
+ * swiping.
+ */
+export function armRecordingFromUrl(
+  search: string,
+  storage: { getItem(k: string): string | null; setItem(k: string, v: string): void },
+): { show: boolean; armed: boolean } {
+  try {
+    const wanted = new URLSearchParams(search).get("record") === "1";
+    const already = storage.getItem(RECORDING_FLAG) !== null;
+    if (wanted && !already) storage.setItem(RECORDING_FLAG, "1");
+    if (!wanted && !already) return { show: false, armed: false };
+    return { show: true, armed: storage.getItem(RECORDING_FLAG) === "1" };
+  } catch {
+    return { show: false, armed: false };
+  }
+}
+
+/**
  * How often the buffer reaches storage.
  *
  * NOT every fix. A `localStorage.setItem` of a growing JSON string is a

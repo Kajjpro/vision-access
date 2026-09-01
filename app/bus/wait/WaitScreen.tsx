@@ -47,6 +47,7 @@ import {
 } from "@/lib/ui/stop-search";
 import { describeCountdown } from "@/lib/transit/announce";
 import { createEarconPlayer } from "@/lib/transit/earcons";
+import { armRecordingFromUrl } from "@/lib/transit/recorder";
 import {
   becameDue, countdownFor, countdownKeys, COUNTDOWN_CLIP_IDS, crossedAlert, DUE_VIBRATION, earconForMark,
   isStale, MAX_SPOKEN_NUMBER, waitVibration, type Countdown,
@@ -320,6 +321,23 @@ export function WaitScreen({
     if (startedRef.current) return;
     startedRef.current = true;
     audioContext();
+
+    /**
+     * Arm the field-test recorder here, not on the ride screen.
+     *
+     * The ride screen is only ever reached by `router.push("/bus/ride")`, which
+     * carries no query string — so `?record=1` had no way to survive the
+     * navigation, and putting it on the ride URL directly lands on a screen
+     * with no handoff, which refuses to start. Arming from the session that
+     * creates the handoff is the only path that has both.
+     */
+    const rec = armRecordingFromUrl(window.location.search, sessionStorage);
+    if (rec.armed) {
+      note("RECORDING ARMED — will capture the ride");
+      // Non-verbal on purpose: there is no rendered Mongolian for "recording",
+      // and an unrendered key would be dropped without a sound.
+      playEarcon("alert");
+    }
     // Read on the first gesture rather than in a mount effect: localStorage
     // does not exist during SSR, and seeding it from an effect costs a second
     // render of a list the user may already be swiping through.
@@ -327,7 +345,7 @@ export function WaitScreen({
     await loadClips(FIRST_CLIPS);
     void loadClips().catch(() => {});
     void locate();
-  }, [locate]);
+  }, [locate, note, playEarcon]);
 
   // ------------------------------------------------------- destinations
 
