@@ -46,8 +46,9 @@ import {
   saveSearchHistory, searchStopsAny, type SearchHistory, type StopGroup,
 } from "@/lib/ui/stop-search";
 import { describeCountdown } from "@/lib/transit/announce";
+import { createEarconPlayer } from "@/lib/transit/earcons";
 import {
-  becameDue, countdownFor, countdownKeys, COUNTDOWN_CLIP_IDS, crossedAlert, DUE_VIBRATION,
+  becameDue, countdownFor, countdownKeys, COUNTDOWN_CLIP_IDS, crossedAlert, DUE_VIBRATION, earconForMark,
   isStale, MAX_SPOKEN_NUMBER, waitVibration, type Countdown,
 } from "@/lib/transit/eta";
 import { planJourney, reachableFrom, type JourneyOption } from "@/lib/transit/planner";
@@ -175,6 +176,27 @@ export function WaitScreen({
   const groups = useMemo(() => buildStopGroups(stops), [stops]);
 
   const note = useCallback((line: string) => setLog((l) => [line, ...l].slice(0, 30)), []);
+
+  /**
+   * The earcon channel. Synthesized, so it survives a total decode failure.
+   *
+   * Fire-and-forget with its own abort controller: this screen speaks through
+   * `playSequence` rather than the AudioQueue, so there is no drain loop to
+   * sequence the tone against the words. That is acceptable here because the
+   * wait-screen ladder fires on a MARK CROSSING — an event that happens at most
+   * four times in a wait — rather than continuously, so the tone leading the
+   * speech by a few tens of milliseconds is the whole interaction.
+   */
+  const playEarcon = useCallback((id: "soft" | "alert" | "urgent") => {
+    try {
+      const player = createEarconPlayer(() => audioContext());
+      void player.play(id, new AbortController().signal).catch(() => {
+        // The redundant channel must never cost the words that follow it.
+      });
+    } catch {
+      // No AudioContext yet — the first gesture has not happened.
+    }
+  }, []);
 
   /** Returns how long the utterance occupies, so a caller can wait for it exactly. */
   const say = useCallback((clips: (string | undefined | null)[]): number => {
@@ -786,16 +808,18 @@ export function WaitScreen({
     const mark = crossedAlert(previous, countdown);
     if (mark !== null) {
       note(`countdown ${option.legs[0].routeDisplayName}: ${mark} min mark`);
+      playEarcon(earconForMark(mark));
       vibrate(waitVibration(mark) ?? []);
       say([`route_${option.legs[0].routeId}`, ...countdownKeys(countdown, hasClip)]);
       return;
     }
     if (becameDue(previous, countdown)) {
       note(`countdown ${option.legs[0].routeDisplayName}: due`);
+      playEarcon("urgent");
       vibrate(DUE_VIBRATION);
       say([`route_${option.legs[0].routeId}`, ...countdownKeys(countdown, hasClip)]);
     }
-  }, [countdownOf, nav.index, note, now, phase, plans, say]);
+  }, [countdownOf, nav.index, note, now, phase, plans, playEarcon, say]);
 
   const a11yOptions: A11yOption[] = options.map((o, i) => ({
     label: o.label,
