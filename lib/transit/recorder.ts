@@ -44,6 +44,27 @@ export type RecordedEvent =
   | { t: number; kind: "haptic"; pattern: number[] }
   /** A clip the player did not have. The gap between asked-for and played. */
   | { t: number; kind: "missing"; keys: string[] }
+  /**
+   * Page and screen lifecycle: mount, unmount, visibility, pagehide, pageshow,
+   * wake-lock acquire and release. Logged so a remount is LEGIBLE afterwards
+   * rather than inferred from a hole in the trace.
+   */
+  | { t: number; kind: "lifecycle"; event: string; detail?: string }
+  /**
+   * Proof the page was alive, independent of whether fixes were arriving.
+   *
+   * THIS IS WHAT SEPARATES THE TWO STALLS. A gap in the trace alone is
+   * ambiguous: geolocation may have stopped delivering, or the whole page may
+   * have been frozen, and those have completely different fixes. With a
+   * heartbeat running on its own timer the two become distinguishable —
+   *
+   *   heartbeats continue, fix count frozen  →  geolocation stalled
+   *   heartbeats stop too                    →  the page was suspended
+   *
+   * `lastFixAt` carried on each beat also gives staleness at every moment,
+   * without logging an event per fix and tripling the file.
+   */
+  | { t: number; kind: "heartbeat"; fixes: number; lastFixAt: number | null; visible: boolean }
   | { t: number; kind: "note"; text: string };
 
 export type BatterySample = { t: number; level: number; charging: boolean };
@@ -138,6 +159,8 @@ export type Recorder = {
   earcon(id: string): void;
   haptic(pattern: number[]): void;
   missing(keys: string[]): void;
+  lifecycle(event: string, detail?: string): void;
+  heartbeat(visible: boolean): void;
   note(text: string): void;
   battery(level: number, charging: boolean): void;
   setRoute(route: Recording["route"]): void;
@@ -161,7 +184,7 @@ export function nullRecorder(): Recorder {
   return {
     active: false,
     fix() {}, engine() {}, say() {}, clips() {}, earcon() {}, haptic() {},
-    missing() {}, note() {}, battery() {}, setRoute() {}, flush() {},
+    missing() {}, lifecycle() {}, heartbeat() {}, note() {}, battery() {}, setRoute() {}, flush() {},
     snapshot: () => empty, stop: () => empty,
   };
 }
@@ -281,6 +304,18 @@ export function createRecorder(
     },
 
     earcon(id) { push({ t: now(), kind: "earcon", id }); },
+
+    lifecycle(event, detail) {
+      push({ t: now(), kind: "lifecycle", event, detail });
+      // Lifecycle events are exactly the moments the page may not come back,
+      // so they are written immediately rather than waiting for the interval.
+      write();
+    },
+
+    heartbeat(visible) {
+      const last = data.trace.length ? data.trace[data.trace.length - 1].timestamp : null;
+      push({ t: now(), kind: "heartbeat", fixes: data.trace.length, lastFixAt: last, visible });
+    },
     haptic(pattern) { push({ t: now(), kind: "haptic", pattern }); },
     missing(keys) { push({ t: now(), kind: "missing", keys }); },
     note(text) { push({ t: now(), kind: "note", text }); },

@@ -289,11 +289,19 @@ export function RideScreen({
       if ("wakeLock" in navigator) {
         wakeLockRef.current = await navigator.wakeLock.request("screen");
         note("wake lock acquired");
-        wakeLockRef.current.addEventListener("release", () => note("wake lock released by system"));
+        recorderRef.current.lifecycle("wakelock", "acquired");
+        wakeLockRef.current.addEventListener("release", () => {
+          note("wake lock released by system");
+          // The system releases it whenever the page stops being visible, so
+          // this line is the marker for "the screen went away".
+          recorderRef.current.lifecycle("wakelock", `released by system (visibility=${document.visibilityState})`);
+        });
         return;
       }
     } catch (e) {
-      note(`wake lock failed: ${e instanceof Error ? e.message : e}`);
+      const why = e instanceof Error ? e.message : String(e);
+      note(`wake lock failed: ${why}`);
+      recorderRef.current.lifecycle("wakelock", `request failed: ${why}`);
     }
     if (!silentAudioRef.current) {
       const el = document.createElement("audio");
@@ -302,24 +310,81 @@ export function RideScreen({
       silentAudioRef.current = el;
       void el.play().catch(() => note("silent-audio fallback blocked until a gesture"));
       note("wake lock unsupported — silent-audio fallback");
+      recorderRef.current.lifecycle("wakelock", "unsupported — silent-audio fallback");
     }
   }, [note]);
 
+  /**
+   * PAGE LIFECYCLE, INSTRUMENTED.
+   *
+   * A remount is currently only inferable from a hole in the trace, and a hole
+   * has at least three causes with different fixes: geolocation stopped
+   * delivering, the page was frozen but survived, or the page was unloaded and
+   * rebuilt. These listeners make the three distinguishable after the fact.
+   *
+   * `pagehide` with `persisted: false` is the unload; `visibilitychange` to
+   * hidden without a pagehide is backgrounded-but-alive. Both flush, because
+   * neither is guaranteed to be followed by anything.
+   */
   useEffect(() => {
+    recorderRef.current.lifecycle("mount");
+
     const onVisible = () => {
       if (document.visibilityState === "visible" && engineRef.current && !wakeLockRef.current) {
         void acquireWakeLock();
       }
     };
-    // A backgrounded tab may not come back. Flush before it can be killed.
-    const onHide = () => { if (document.visibilityState === "hidden") recorderRef.current.flush(); };
-    document.addEventListener("visibilitychange", onHide);
+    const onVisibility = () => {
+      const hidden = document.visibilityState === "hidden";
+      recorderRef.current.lifecycle("visibilitychange", document.visibilityState);
+      // A backgrounded tab may not come back. Flush before it can be killed.
+      if (hidden) recorderRef.current.flush();
+    };
+    const onPageHide = (e: PageTransitionEvent) => {
+      // persisted:true means the bfcache took it and it can come back intact;
+      // persisted:false means this document is being destroyed.
+      recorderRef.current.lifecycle("pagehide", e.persisted ? "persisted (bfcache)" : "UNLOADED");
+      recorderRef.current.flush();
+    };
+    const onPageShow = (e: PageTransitionEvent) => {
+      recorderRef.current.lifecycle("pageshow", e.persisted ? "restored from bfcache" : "fresh load");
+    };
+    const onFreeze = () => recorderRef.current.lifecycle("freeze");
+    const onResume = () => recorderRef.current.lifecycle("resume");
+
+    document.addEventListener("visibilitychange", onVisibility);
     document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("pagehide", onPageHide);
+    window.addEventListener("pageshow", onPageShow);
+    document.addEventListener("freeze", onFreeze);
+    document.addEventListener("resume", onResume);
+
     return () => {
-      document.removeEventListener("visibilitychange", onHide);
+      recorderRef.current.lifecycle("unmount");
+      recorderRef.current.flush();
+      document.removeEventListener("visibilitychange", onVisibility);
       document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("pagehide", onPageHide);
+      window.removeEventListener("pageshow", onPageShow);
+      document.removeEventListener("freeze", onFreeze);
+      document.removeEventListener("resume", onResume);
     };
   }, [acquireWakeLock]);
+
+  /**
+   * Heartbeat — the second clock.
+   *
+   * Runs on its own timer, so a gap in fixes with heartbeats continuing is a
+   * geolocation stall, while a gap in both is the page being suspended. Only
+   * started while actually recording, so an ordinary journey pays nothing.
+   */
+  useEffect(() => {
+    if (!recordingActive) return;
+    const timer = setInterval(() => {
+      recorderRef.current.heartbeat(document.visibilityState === "visible");
+    }, 5_000);
+    return () => clearInterval(timer);
+  }, [recordingActive]);
 
   // ----------------------------------------------------------- events
 
@@ -519,6 +584,7 @@ export function RideScreen({
         });
       }
 
+      recorderRef.current.lifecycle("watch-start");
       watchRef.current = navigator.geolocation.watchPosition(
         (pos) => {
           const current = engineRef.current;
@@ -571,7 +637,10 @@ export function RideScreen({
           handleEngineEvents(r.events);
           speakLadder(r.state, dest, now);
         },
-        (err) => note(`geolocation error: ${err.message}`),
+        (err) => {
+          note(`geolocation error: ${err.message}`);
+          recorderRef.current.lifecycle("geolocation-error", `${err.code}: ${err.message}`);
+        },
         { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 },
       );
     },

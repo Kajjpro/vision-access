@@ -176,3 +176,56 @@ test("a recording with no route yet is not resumable", () => {
   r.flush();
   assert.equal(loadResumable(store, ROUTE.routeId, 0), null);
 });
+
+// ------------------------------------------ separating the two kinds of stall
+
+test("heartbeats make a page stall distinguishable from a geolocation stall", () => {
+  /**
+   * A hole in the trace alone is ambiguous, and the two causes need different
+   * fixes: geolocation stopped delivering while the page ran, or the whole page
+   * was suspended in a locked pocket. The heartbeat runs on its own timer, so
+   * whether IT continued is the discriminator.
+   */
+  const store = mem();
+  let clock = 0;
+  const r = createRecorder(store, { now: () => clock });
+
+  // Alive and receiving: heartbeats advance and so does the fix count.
+  for (let i = 0; i < 3; i++) {
+    clock += 5000;
+    r.fix({ lat: 1, lon: 2, accuracy: 10, timestamp: clock });
+    r.heartbeat(true);
+  }
+  // GEOLOCATION stall: the page keeps beating, no fixes arrive.
+  for (let i = 0; i < 3; i++) { clock += 5000; r.heartbeat(true); }
+  // PAGE stall: no beats at all for a minute, then it comes back.
+  clock += 60_000;
+  r.heartbeat(false);
+
+  const beats = r.snapshot().events.filter((e) => e.kind === "heartbeat") as
+    Extract<ReturnType<typeof r.snapshot>["events"][number], { kind: "heartbeat" }>[];
+
+  assert.equal(beats.length, 7);
+  // During the geolocation stall the fix count is static across beats.
+  assert.equal(beats[3].fixes, beats[5].fixes, "fix count moved during a geolocation stall");
+  // The page stall shows up as a gap between consecutive beat timestamps.
+  const gap = beats[6].t - beats[5].t;
+  assert.ok(gap > 12_000, `a page stall must leave a heartbeat gap, got ${gap}ms`);
+  assert.equal(beats[6].visible, false, "the beat did not record that the page was hidden");
+});
+
+test("lifecycle events are written immediately, not at the next interval", () => {
+  // These are exactly the moments the page may never come back from, so
+  // waiting for the flush interval could lose the one line that explains the
+  // hole in the trace.
+  const store = mem();
+  const r = createRecorder(store, { now: () => 0 });
+  const before = store.writes;
+  r.lifecycle("pagehide", "UNLOADED");
+  assert.ok(store.writes > before, "a lifecycle event did not force a write");
+  const back = loadRecording(store)!;
+  assert.ok(
+    back.events.some((e) => e.kind === "lifecycle" && e.event === "pagehide"),
+    "the lifecycle event never reached storage",
+  );
+});
