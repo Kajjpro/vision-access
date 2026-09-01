@@ -184,10 +184,31 @@ export function confidenceLost(now: number): Announcement {
 // --------------------------------------------------------------- boarding
 
 /**
- * The boarding ladder's rungs, per §5.1.
+ * The boarding ladder's rungs, per §5.1. FEED-GATED — currently unreachable.
  *
  * Five is offered but off by default: at five stops out there is nothing a
  * rider does differently, and the §1 rule is that audio is not a progress bar.
+ *
+ * ── THIS IS NOT THE BOARDING LADDER THAT SHIPS ─────────────────────────────
+ *
+ * Kept for when the live feed opens up, in the same spirit as
+ * `correlateVehicle` in lib/transit/boarding.ts: it counts a VEHICLE's position
+ * toward the rider's stop, and vehicle positions come from the City gateway,
+ * which is closed to us. `PositionSource` has an `eta_inferred` member that
+ * could drive it from schedule data instead, but nothing in the repository
+ * produces one — so this has no announcement builder, no caller, and no input.
+ *
+ * The ladder a waiting rider actually hears is the TIME-based one in
+ * lib/transit/eta.ts (10/5/3/1 minutes, then due), live on the wait screen.
+ * Do not read this function as the boarding half being covered.
+ *
+ * ── KNOWN GAP, RECORDED RATHER THAN FIXED ──────────────────────────────────
+ *
+ * §5.1 and the module header both specify a fifth rung — vehicle within 80 m,
+ * urgent — and THIS SIGNATURE CANNOT EXPRESS IT. 80 m is a distance; the
+ * parameter is a stop count. Whoever opens the feed will need to widen the
+ * input before that rung can exist, so it is described here rather than
+ * rediscovered then. It costs nothing to keep the rest correct meanwhile.
  */
 export function boardingRung(stopsAway: number, announceAtFive: boolean): 5 | 3 | 2 | 1 | null {
   if (stopsAway === 1) return 1;
