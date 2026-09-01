@@ -17,7 +17,7 @@
  * that drops the hedge, and it is checked here, once.
  */
 import type { Announcement, Priority } from "./audio-queue";
-import { countdownFor, countdownKeys, type Countdown } from "./eta";
+import { countdownFor, countdownKeys, MAX_SPOKEN_NUMBER, type Countdown } from "./eta";
 import type { Arrival, DegradedReason, Route, Stop } from "./types";
 
 /**
@@ -412,6 +412,66 @@ export function announceRemaining(
   }
 
   return null;
+}
+
+/**
+ * The long-press status: where you are, where you are going, how far.
+ *
+ * PURE AND HERE rather than assembled in the screen, because it is the overshot
+ * rider's only escape hatch and a screen has no test coverage. It used to guard
+ * both the number and the suffix on `left > 0`, so once the destination was
+ * behind them a long press produced a prefix and two stop names with no
+ * relationship between them — at exactly the moment the rider had least idea
+ * where they were.
+ *
+ * Past the destination it answers the question actually being asked: how far
+ * past, anchored to the stop that was missed. All keys or none for the count,
+ * so a missing clip cannot leave a bare number mid-sentence.
+ */
+export function announceStatus(
+  args: {
+    at: { id: string; name: string } | null;
+    destination: { id: string; name: string } | null;
+    remaining: number | null;
+    statusPrefixKey: string;
+    stopsRemainingKey: string;
+  },
+  hasClip: (key: string) => boolean,
+  now: number = Date.now(),
+): Announcement {
+  const { at, destination, remaining, statusPrefixKey, stopsRemainingKey } = args;
+  const nameOf = (s: { id: string } | null) =>
+    s && hasClip(stopKey(s.id)) ? stopKey(s.id) : null;
+
+  if (remaining !== null && remaining < 0) {
+    const past = -remaining;
+    const sayable =
+      past <= MAX_SPOKEN_NUMBER && hasClip(numberKey(past)) && hasClip("bus_stops_past_suffix");
+    return {
+      keys: [
+        statusPrefixKey,
+        "bus_passed_stop",
+        nameOf(destination),
+        ...(sayable ? [numberKey(past), "bus_stops_past_suffix"] : []),
+      ].filter((k): k is string => Boolean(k)),
+      priority: "critical",
+      expiresAt: now + TTL.STATE,
+      label: `status: ${past} past ${destination?.name ?? "?"}`,
+    };
+  }
+
+  return {
+    keys: [
+      statusPrefixKey,
+      nameOf(at),
+      nameOf(destination),
+      remaining !== null && remaining > 0 && remaining <= MAX_SPOKEN_NUMBER ? numberKey(remaining) : null,
+      remaining !== null && remaining > 0 ? stopsRemainingKey : null,
+    ].filter((k): k is string => Boolean(k)),
+    priority: "critical",
+    expiresAt: now + TTL.STATE,
+    label: `status: at ${at?.name ?? "?"}, ${remaining ?? "?"} to ${destination?.name ?? "?"}`,
+  };
 }
 
 /**

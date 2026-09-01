@@ -641,6 +641,31 @@ export function remainingTo(state: EngineState, destinationIndex: number): numbe
 }
 
 /**
+ * Manual advance — the rider's escape hatch when tracking is wrong.
+ *
+ * CLAMPED AT THE DESTINATION, and that is the whole point. A count two stops
+ * ahead of reality fires "Одоо буугаарай" 251 s early, measured, and two
+ * spurious presses reproduce it exactly. Manual input must never be able to
+ * send someone out of a door on its own evidence, so it may advance the count
+ * TOWARD the destination but never to it or past it.
+ *
+ * Returns `clamped` so the caller can answer rather than swallow the press: a
+ * rider pressing a button that does nothing has no way to tell a clamp from a
+ * frozen app.
+ */
+export function advanceManually(
+  state: EngineState,
+  destinationIndex: number,
+): { state: EngineState; clamped: boolean } {
+  const proposed = state.stopIndex + 1;
+  if (proposed >= destinationIndex) return { state, clamped: true };
+  return {
+    state: { ...state, stopIndex: proposed, pending: null, atPending: null },
+    clamped: false,
+  };
+}
+
+/**
  * Stops remaining, as the ALIGHTING ladder must see them.
  *
  * Identical to `remainingTo` everywhere except at the destination itself, where

@@ -19,7 +19,7 @@ import test from "node:test";
 
 import {
   ACCURACY_LIMIT_M, ADVANCE_THRESHOLD_M, CONFIRMATION_FIXES, confidenceFor,
-  WRONG_DIRECTION_SPACINGS, WRONG_DIRECTION_SUSTAIN_FIXES,
+  WRONG_DIRECTION_SPACINGS, WRONG_DIRECTION_SUSTAIN_FIXES, advanceManually,
   createEngine, DEAD_RECKONING_LIMIT_MS, deadReckonedIndex, FRESH_MS, isDowngrade,
   LAYOVER_MS, onFix, onTick, remainingTo, STALE_MS,
   type EngineEvent, type EngineState, type Fix,
@@ -461,3 +461,32 @@ function pointAtDistance(
     lon: chain[i].lon + (chain[i + 1].lon - chain[i].lon) * t,
   };
 }
+
+// --------------------------------------------------- manual advance, clamped
+
+test("manual advance may approach the destination but never reach it", () => {
+  /**
+   * A count two stops ahead of reality fires "Одоо буугаарай" 251 s early —
+   * measured — and two spurious presses reproduce it exactly. Manual input must
+   * not be able to send a blind rider out of a door on its own evidence.
+   */
+  const geometry = new StopChainGeometry(CHAIN);
+  const dest = 6;
+  let state = createEngine(3, geometry);
+
+  for (const expected of [4, 5]) {
+    const r = advanceManually(state, dest);
+    assert.equal(r.clamped, false);
+    assert.equal(r.state.stopIndex, expected);
+    state = r.state;
+  }
+
+  // At dest-1 the next press is refused, and stays refused however often it
+  // is pressed — the caller answers, so the press is never silently swallowed.
+  for (let i = 0; i < 4; i++) {
+    const r = advanceManually(state, dest);
+    assert.equal(r.clamped, true, "manual input advanced onto the destination");
+    assert.equal(r.state.stopIndex, dest - 1, "the count moved despite the clamp");
+    assert.equal(r.state, state, "a clamped press must return the state untouched");
+  }
+});
