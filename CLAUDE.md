@@ -74,8 +74,50 @@ Confidence _downgrades_ are announced exactly once. Never repeat a degradation n
 
 **Silence is the default.** Audio is not a progress bar. The rider navigates by ear and every unnecessary word masks traffic they need to hear. Speak on state change only — never on a timer, never as a periodic update.
 
-Boarding ladder: silent ≥6 stops · optional at 5 (default off) · 3 · 2 · 1 (alert) · vehicle within 80 m (urgent).
-Alighting ladder: silent >3 stops · 3 · 2 · 1 (alert, "press the button") · arrival (urgent) · overshoot (priority 0).
+### "Boarding ladder" names two different things — only one of them ships
+
+This was one line for a long time and it hid a fact that matters: **the boarding
+ladder that ships is not the one described below it.** Check which you mean
+before changing either.
+
+**WAITING — time-based. This is the one that ships.** `lib/transit/eta.ts`,
+live on the wait screen. Driven by arrival estimates from the OTP proxy, which
+is schedule data, so every minute it speaks is hedged and cannot be unhedged by
+a caller.
+
+| Rung | Marks | Channels |
+| ---- | ----- | -------- |
+| `ALERT_MINUTES` | 10 · 5 · 3 · 1 minutes, then `due` | speech (`bus_approx_prefix` + `num_N` + `bus_minutes_suffix`, all-or-none) · haptic (`waitVibration`, `DUE_VIBRATION`) |
+
+Marks are crossed against the PREVIOUS countdown, not wall-clock, so a
+backgrounded screen or a skipped poll announces the mark late rather than losing
+it. It never fires on first observation — that is the initial announcement's job.
+
+**WAITING — stops-away. Specified, built, and CANNOT RUN.** `boardingRung` in
+`lib/countdown/ladder.ts`: silent ≥6 stops · optional at 5 (default off) · 3 · 2
+· 1 (alert) · vehicle within 80 m (urgent).
+
+It counts a *vehicle's* position toward the rider's stop, and vehicle positions
+come from the City feed, which is dark (see "Out of scope"). `PositionSource`
+has an `eta_inferred` member that could drive it from schedule data instead, but
+nothing in the repository produces one. So `boardingRung` has no announcement
+builder, no caller, and no input. **Do not wire it. Do not count it as the
+boarding half being covered — `eta.ts` is that.**
+
+**ALIGHTING — stops-away. Ships.** silent >3 stops · 3 · 2 · 1 (alert, "press the
+button") · arrival (urgent) · overshoot (priority 0).
+
+Two rules the table above does not carry:
+
+- Rung 1 is suppressed below `RUNG1_MIN_LEAD_S`. Where the last two stops sit
+  close together, "get ready" and "get off now" land together, and a rider then
+  gets a preparation signal and an action signal at the same moment — which is
+  less than the action signal alone, and the preparation one is cut off mid-word
+  by it. The time is absent from the geometry; no threshold can manufacture it.
+- Overshoot repeats for `OVERSHOOT_REPEAT_STOPS` stops and then stops, and every
+  follow-up re-speaks `bus_passed_stop`. The suffix says "N stops have passed"
+  and does not name the missed stop, so without the anchor the third follow-up
+  is a bare number several minutes adrift from what it refers to.
 
 **Scheduler invariants:**
 
