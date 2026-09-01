@@ -43,8 +43,8 @@ import { StopChainGeometry, type GeometryStop } from "@/lib/countdown/geometry";
 import { alightingAnnouncement, confidenceLost } from "@/lib/countdown/ladder";
 import { createEarconPlayer } from "@/lib/transit/earcons";
 import {
-  clearRecording, createRecorder, describeRecording, loadRecording, nullRecorder,
-  recordingFilename, type Recorder,
+  armRecordingFromUrl, clearRecording, createRecorder, describeRecording, loadRecording,
+  nullRecorder, RECORDING_FLAG, recordingFilename, type Recorder,
 } from "@/lib/transit/recorder";
 import {
   createBoardingState, onWaitingPosition, type BoardingState,
@@ -70,14 +70,7 @@ type Action =
   | { kind: "share" }
   | { kind: "finish" };
 
-/**
- * Recording is OFF unless this is set before the journey starts.
- *
- * A flag rather than a screen control the rider might land on by accident: it
- * is a field-test instrument, and a blind rider swiping through options should
- * not be able to start writing a GPS log they did not ask for.
- */
-const RECORDING_FLAG = "va:record-journey";
+
 
 export function RideScreen({
   stops, routeStops, manifest,
@@ -127,15 +120,8 @@ export function RideScreen({
    * the second render lands while the user may already be swiping.
    */
   const armFieldTest = useCallback(() => {
-    try {
-      const wanted = new URLSearchParams(window.location.search).get("record") === "1";
-      const already = sessionStorage.getItem(RECORDING_FLAG) !== null;
-      if (wanted && !already) sessionStorage.setItem(RECORDING_FLAG, "1");
-      if (wanted || already) {
-        setShowFieldTest(true);
-        setRecording(sessionStorage.getItem(RECORDING_FLAG) === "1");
-      }
-    } catch { /* private mode */ }
+    const r = armRecordingFromUrl(window.location.search, sessionStorage);
+    if (r.show) { setShowFieldTest(true); setRecording(r.armed); }
   }, []);
   const watchRef = useRef<number | null>(null);
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
@@ -481,6 +467,16 @@ export function RideScreen({
         });
         setRecording(true);
         note("RECORDING this journey");
+        /**
+         * Confirmation the tester can act on BEFORE the bus moves, which is the
+         * only moment the run can be redone. Non-verbal because there is no
+         * rendered Mongolian for it, and an unrendered key is dropped silently.
+         */
+        try {
+          const p2 = createEarconPlayer(() => ctxRef.current!);
+          void p2.play("alert", new AbortController().signal).catch(() => {});
+        } catch { /* no context yet */ }
+        navigator.vibrate?.([60, 80, 60]);
       }
 
       note(`tracking to ${dest}: ${seq[dest]?.name}`);
@@ -837,7 +833,8 @@ export function RideScreen({
       <CurrentOption
         title={title}
         detail={destIndex !== null ? sequence[destIndex]?.name : handoff?.routeDisplayName}
-        position={degraded ? "GPS сул" : undefined}
+        position={[degraded ? "GPS сул" : null, recording ? "● REC" : null]
+          .filter(Boolean).join(" · ") || undefined}
       />
       <details style={{ position: "absolute", bottom: 6, left: 6, fontSize: 11, color: "#333" }}>
         <summary>debug</summary>
