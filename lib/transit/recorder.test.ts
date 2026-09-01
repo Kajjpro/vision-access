@@ -11,7 +11,7 @@ import test from "node:test";
 
 import {
   clearRecording, createRecorder, describeRecording, FLUSH_INTERVAL_MS,
-  loadRecording, MAX_FIXES, nullRecorder, recordingFilename, STORAGE_KEY,
+  loadRecording, loadResumable, MAX_FIXES, nullRecorder, recordingFilename, STORAGE_KEY,
   type RecorderStorage,
 } from "./recorder";
 
@@ -111,4 +111,68 @@ test("a corrupt or foreign payload reads back as nothing, never as a partial tra
   assert.equal(loadRecording(store), null);
   store.setItem(STORAGE_KEY, JSON.stringify({ version: 99, trace: [] }));
   assert.equal(loadRecording(store), null);
+});
+
+// ------------------------------------------- surviving a remount mid-journey
+
+const ROUTE = { routeId: "11100730", directionId: 0, boardingIndex: 0, destinationIndex: 20 };
+
+test("a remount RESUMES the recording instead of overwriting it", () => {
+  /**
+   * This is the failure that would have cost a whole field test. A phone locks
+   * for forty minutes, the PWA is backgrounded, the browser reclaims memory —
+   * and the ride screen remounts. Starting a fresh recorder meant its first
+   * flush replaced the stored journey with an empty one, so the file coming off
+   * the device would be the last few seconds with nothing to say it had ever
+   * been longer.
+   */
+  const store = mem();
+  let clock = 1_000;
+
+  const first = createRecorder(store, { now: () => clock });
+  first.setRoute(ROUTE);
+  for (let i = 0; i < 100; i++) { clock += 1000; first.fix({ lat: 1, lon: 2, accuracy: 10, timestamp: clock }); }
+  first.flush();
+  const beforeRemount = loadRecording(store)!.trace.length;
+  assert.equal(beforeRemount, 100);
+
+  // --- the screen remounts here; the Recorder instance is gone ---
+  const prior = loadResumable(store, ROUTE.routeId, ROUTE.directionId);
+  assert.ok(prior, "the stored recording was not offered for resume");
+
+  const second = createRecorder(store, { now: () => clock, resume: prior });
+  second.setRoute(ROUTE);
+  for (let i = 0; i < 50; i++) { clock += 1000; second.fix({ lat: 3, lon: 4, accuracy: 10, timestamp: clock }); }
+  second.flush();
+
+  const after = loadRecording(store)!;
+  assert.equal(after.trace.length, 150, "the pre-remount fixes were lost");
+  assert.equal(after.trace[0].lat, 1, "the recording restarted rather than continued");
+  assert.ok(
+    after.events.some((e) => e.kind === "note" && e.text.includes("RESUMED")),
+    "the seam was not marked — an unlabelled gap reads as a GPS dropout",
+  );
+});
+
+test("a DIFFERENT journey does not append to the previous one", () => {
+  // Appending a return leg to an outbound trace produces a fixture whose fixes
+  // walk backwards halfway through — indistinguishable from the wrong-direction
+  // case the trace exists to help tune.
+  const store = mem();
+  const first = createRecorder(store, { now: () => 1 });
+  first.setRoute(ROUTE);
+  first.fix({ lat: 1, lon: 2, accuracy: 10, timestamp: 1 });
+  first.flush();
+
+  assert.equal(loadResumable(store, ROUTE.routeId, 1), null, "resumed across a direction change");
+  assert.equal(loadResumable(store, "99999999", 0), null, "resumed across a route change");
+});
+
+test("a recording with no route yet is not resumable", () => {
+  // Nothing to match on, so continuing it could silently splice two journeys.
+  const store = mem();
+  const r = createRecorder(store, { now: () => 1 });
+  r.fix({ lat: 1, lon: 2, accuracy: 10, timestamp: 1 });
+  r.flush();
+  assert.equal(loadResumable(store, ROUTE.routeId, 0), null);
 });
