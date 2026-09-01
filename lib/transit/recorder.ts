@@ -166,12 +166,38 @@ export function nullRecorder(): Recorder {
   };
 }
 
+/**
+ * The recording to CONTINUE, if the stored one belongs to this same journey.
+ *
+ * Without this, a remount mid-ride is not a truncation — it is a total loss.
+ * `createRecorder` starts with an empty trace, and its first flush overwrites
+ * the stored recording with that empty one. Forty minutes of a locked phone,
+ * a backgrounded PWA, or one memory reclaim, and the file that comes off the
+ * device is the last few seconds with nothing to say it was ever longer.
+ *
+ * Matched on route AND direction: appending a return leg to an outbound trace
+ * would produce a fixture whose fixes walk backwards through the chain halfway
+ * through, which is indistinguishable from the wrong-direction case the trace
+ * exists to help tune.
+ */
+export function loadResumable(
+  storage: RecorderStorage,
+  routeId: string,
+  directionId: number,
+): Recording | null {
+  const prior = loadRecording(storage);
+  if (!prior || !prior.route) return null;
+  if (prior.route.routeId !== routeId || prior.route.directionId !== directionId) return null;
+  return prior;
+}
+
 export function createRecorder(
   storage: RecorderStorage,
-  options: { now?: () => number; device?: string } = {},
+  options: { now?: () => number; device?: string; resume?: Recording | null } = {},
 ): Recorder {
   const now = options.now ?? (() => Date.now());
-  const data: Recording = {
+  const prior = options.resume && options.resume.version === 1 ? options.resume : null;
+  const data: Recording = prior ?? {
     version: 1,
     startedAt: now(),
     device: options.device ?? "",
@@ -180,6 +206,19 @@ export function createRecorder(
     events: [],
     battery: [],
   };
+  if (prior) {
+    /**
+     * Mark the seam. A resumed trace has a gap in it wherever the screen was
+     * gone, and a gap that is not labelled reads as a GPS dropout — which would
+     * be attributed to the device rather than to the remount, and could move a
+     * threshold in the wrong direction.
+     */
+    data.events.push({
+      t: now(),
+      kind: "note",
+      text: `RESUMED after remount — ${data.trace.length} fixes already recorded`,
+    });
+  }
 
   let lastFlush = now();
   let truncated = false;

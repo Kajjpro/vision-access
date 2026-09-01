@@ -44,7 +44,7 @@ import { alightingAnnouncement, confidenceLost } from "@/lib/countdown/ladder";
 import { createEarconPlayer } from "@/lib/transit/earcons";
 import {
   armRecordingFromUrl, clearRecording, createRecorder, describeRecording, loadRecording,
-  nullRecorder, RECORDING_FLAG, recordingFilename, type Recorder,
+  loadResumable, nullRecorder, RECORDING_FLAG, recordingFilename, type Recorder,
 } from "@/lib/transit/recorder";
 import {
   createBoardingState, onWaitingPosition, type BoardingState,
@@ -103,7 +103,18 @@ export function RideScreen({
    * during an ordinary journey.
    */
   const recorderRef = useRef<Recorder>(nullRecorder());
-  const [recording, setRecording] = useState(false);
+  /**
+   * ARMED vs ACTIVELY RECORDING — deliberately two states, because they differ
+   * exactly when it matters most.
+   *
+   * `armed` is the sessionStorage flag and survives a remount. `recordingActive`
+   * mirrors whether a live Recorder exists, and does not. Driving the indicator
+   * from `armed` meant ● REC lit up on the first touch after a remount while
+   * `recorderRef` was still the null recorder — the indicator claiming a
+   * recording that was not running, which is the one thing it must never do.
+   */
+  const [armed, setArmed] = useState(false);
+  const [recordingActive, setRecordingActive] = useState(false);
   /**
    * Field-test controls are hidden unless explicitly opted into with ?record=1.
    *
@@ -121,7 +132,8 @@ export function RideScreen({
    */
   const armFieldTest = useCallback(() => {
     const r = armRecordingFromUrl(window.location.search, sessionStorage);
-    if (r.show) { setShowFieldTest(true); setRecording(r.armed); }
+    // Arming state only. The indicator follows the recorder, not the flag.
+    if (r.show) { setShowFieldTest(true); setArmed(r.armed); }
   }, []);
   const watchRef = useRef<number | null>(null);
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
@@ -453,11 +465,18 @@ export function RideScreen({
        * Recording begins here, not on mount: a trace is only meaningful once
        * the route and destination are known, and those come from the handoff.
        */
-      let armed = false;
-      try { armed = sessionStorage.getItem(RECORDING_FLAG) === "1"; } catch { /* private mode */ }
-      if (armed) {
+      let armedNow = false;
+      try { armedNow = sessionStorage.getItem(RECORDING_FLAG) === "1"; } catch { /* private mode */ }
+      if (armedNow) {
+        /**
+         * Continue the stored recording if it belongs to this same journey.
+         * Starting fresh here would overwrite it on the first flush, so a
+         * remount would destroy the ride rather than interrupt it.
+         */
+        const prior = loadResumable(window.localStorage, h.routeId, h.directionId);
         recorderRef.current = createRecorder(window.localStorage, {
           device: navigator.userAgent,
+          resume: prior,
         });
         recorderRef.current.setRoute({
           routeId: h.routeId,
@@ -465,8 +484,10 @@ export function RideScreen({
           boardingIndex: h.boardingIndex,
           destinationIndex: dest,
         });
-        setRecording(true);
-        note("RECORDING this journey");
+        setRecordingActive(recorderRef.current.active);
+        note(prior
+          ? `RESUMED recording — ${prior.trace.length} fixes already captured`
+          : "RECORDING this journey");
         /**
          * Confirmation the tester can act on BEFORE the bus moves, which is the
          * only moment the run can be redone. Non-verbal because there is no
@@ -656,12 +677,12 @@ export function RideScreen({
     ];
     if (showFieldTest) {
       base.push(
-        { value: { kind: "record" }, keys: [], label: recording ? "Бичлэг зогсоох" : "Бичлэг эхлүүлэх" },
+        { value: { kind: "record" }, keys: [], label: armed ? "Бичлэг зогсоох" : "Бичлэг эхлүүлэх" },
         { value: { kind: "share" }, keys: [], label: "Бичлэг илгээх" },
       );
     }
     return base;
-  }, [destIndex, handoff, recording, sequence, showFieldTest]);
+  }, [armed, destIndex, handoff, sequence, showFieldTest]);
 
   const say = useCallback((keys: (string | null)[], label: string) => push(keys, label, "normal"), [push]);
 
@@ -755,17 +776,20 @@ export function RideScreen({
   }, [note]);
 
   const toggleRecording = useCallback(() => {
-    let armed = false;
-    try { armed = sessionStorage.getItem(RECORDING_FLAG) === "1"; } catch { /* private mode */ }
-    const next = !armed;
+    let current = false;
+    try { current = sessionStorage.getItem(RECORDING_FLAG) === "1"; } catch { /* private mode */ }
+    const next = !current;
     try { sessionStorage.setItem(RECORDING_FLAG, next ? "1" : "0"); } catch { /* private mode */ }
     if (!next) {
       recorderRef.current.flush();
       recorderRef.current = nullRecorder();
     } else {
+      // Arming starts a NEW journey, so the old trace goes rather than being
+      // resumed into. Disarm-then-arm is how a bad run is discarded.
       clearRecording(window.localStorage);
     }
-    setRecording(next);
+    setArmed(next);
+    setRecordingActive(recorderRef.current.active);
     note(next ? "recording ARMED — restart the journey to capture it" : "recording disarmed");
   }, [note]);
 
@@ -833,7 +857,7 @@ export function RideScreen({
       <CurrentOption
         title={title}
         detail={destIndex !== null ? sequence[destIndex]?.name : handoff?.routeDisplayName}
-        position={[degraded ? "GPS сул" : null, recording ? "● REC" : null]
+        position={[degraded ? "GPS сул" : null, recordingActive ? "● REC" : null]
           .filter(Boolean).join(" · ") || undefined}
       />
       <details style={{ position: "absolute", bottom: 6, left: 6, fontSize: 11, color: "#333" }}>
