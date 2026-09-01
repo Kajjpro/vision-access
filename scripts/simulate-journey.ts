@@ -77,8 +77,21 @@ function main(): void {
 
   let fixes: Fix[];
   if (typeof args.trace === "string") {
-    const raw = JSON.parse(readFileSync(args.trace, "utf8")) as
+    /**
+     * Accepts either a bare fix array or a recorder file.
+     *
+     * `lib/transit/recorder.ts` writes `{version, route, trace, events, …}` —
+     * the diagnostics have to travel with the fixes or a trace arrives with no
+     * way to tell which route it was. Unwrapping here is what makes "record on
+     * a phone, replay on a laptop" a copy rather than a conversion step.
+     */
+    const parsed = JSON.parse(readFileSync(args.trace, "utf8")) as unknown;
+    const raw = (Array.isArray(parsed) ? parsed : (parsed as { trace?: unknown[] }).trace ?? []) as
       { lat: number; lon: number; accuracy?: number; accuracyM?: number; timestamp: number }[];
+    if (!raw.length) {
+      console.error(`${args.trace} contains no fixes — expected an array, or an object with a "trace" array`);
+      process.exit(1);
+    }
     fixes = raw.map((f) => ({
       lat: f.lat, lon: f.lon,
       accuracyM: f.accuracyM ?? f.accuracy ?? 20,

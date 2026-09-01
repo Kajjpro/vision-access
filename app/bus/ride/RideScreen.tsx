@@ -43,6 +43,10 @@ import { StopChainGeometry, type GeometryStop } from "@/lib/countdown/geometry";
 import { alightingAnnouncement, confidenceLost } from "@/lib/countdown/ladder";
 import { createEarconPlayer } from "@/lib/transit/earcons";
 import {
+  clearRecording, createRecorder, describeRecording, loadRecording, nullRecorder,
+  recordingFilename, type Recorder,
+} from "@/lib/transit/recorder";
+import {
   createBoardingState, onWaitingPosition, type BoardingState,
 } from "@/lib/transit/boarding";
 /**
@@ -62,7 +66,18 @@ type NavigatorWithBattery = Navigator & { getBattery?: () => Promise<BatteryMana
 type Action =
   | { kind: "destination"; index: number }
   | { kind: "advance" }
+  | { kind: "record" }
+  | { kind: "share" }
   | { kind: "finish" };
+
+/**
+ * Recording is OFF unless this is set before the journey starts.
+ *
+ * A flag rather than a screen control the rider might land on by accident: it
+ * is a field-test instrument, and a blind rider swiping through options should
+ * not be able to start writing a GPS log they did not ask for.
+ */
+const RECORDING_FLAG = "va:record-journey";
 
 export function RideScreen({
   stops, routeStops, manifest,
@@ -89,6 +104,32 @@ export function RideScreen({
    */
   const lastSpokenRef = useRef<number | null>(null);
   const downgradeAnnouncedRef = useRef(false);
+  /**
+   * OBSERVER ONLY. Nothing downstream branches on it, nothing awaits it.
+   * `nullRecorder` rather than null so a forgotten guard cannot start writing
+   * during an ordinary journey.
+   */
+  const recorderRef = useRef<Recorder>(nullRecorder());
+  const [recording, setRecording] = useState(false);
+  /**
+   * Field-test controls are hidden unless explicitly opted into with ?record=1.
+   *
+   * They have no rendered Mongolian, so to an ordinary rider they would be
+   * silent options in the swipe list — worse than absent ones.
+   */
+  const [showFieldTest, setShowFieldTest] = useState(false);
+
+  useEffect(() => {
+    try {
+      const wanted = new URLSearchParams(window.location.search).get("record") === "1";
+      const already = sessionStorage.getItem(RECORDING_FLAG) !== null;
+      if (wanted && !already) sessionStorage.setItem(RECORDING_FLAG, "1");
+      if (wanted || already) {
+        setShowFieldTest(true);
+        setRecording(sessionStorage.getItem(RECORDING_FLAG) === "1");
+      }
+    } catch { /* private mode */ }
+  }, []);
   const watchRef = useRef<number | null>(null);
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
   const silentAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -210,9 +251,16 @@ export function RideScreen({
         vibrate: (pattern) => navigator.vibrate?.(pattern),
       });
       queue.on((e: QueueEvent) => {
-        if (e.type === "missing") note(`NO CLIP: ${e.keys.join(", ")}`);
+        if (e.type === "missing") { note(`NO CLIP: ${e.keys.join(", ")}`); recorderRef.current.missing(e.keys); }
         else if (e.type === "stalled") note(`STALLED: ${e.key} — abandoned so the queue keeps moving`);
-        else if (e.type === "start") note(`say: ${e.announcement.label ?? ""}`);
+        else if (e.type === "start") {
+          note(`say: ${e.announcement.label ?? ""}`);
+          // What was actually played, which diverges from what was asked for
+          // whenever a stop name is one of the 770 not yet rendered.
+          recorderRef.current.clips(e.announcement.keys.filter((k) => player.has(k)));
+          if (e.announcement.earcon) recorderRef.current.earcon(e.announcement.earcon);
+          if (e.announcement.haptic?.length) recorderRef.current.haptic(e.announcement.haptic);
+        }
       });
       queueRef.current = queue;
       const { failed } = await player.load();
@@ -258,8 +306,14 @@ export function RideScreen({
         void acquireWakeLock();
       }
     };
+    // A backgrounded tab may not come back. Flush before it can be killed.
+    const onHide = () => { if (document.visibilityState === "hidden") recorderRef.current.flush(); };
+    document.addEventListener("visibilitychange", onHide);
     document.addEventListener("visibilitychange", onVisible);
-    return () => document.removeEventListener("visibilitychange", onVisible);
+    return () => {
+      document.removeEventListener("visibilitychange", onHide);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [acquireWakeLock]);
 
   // ----------------------------------------------------------- events
@@ -302,6 +356,7 @@ export function RideScreen({
   const handleEngineEvents = useCallback(
     (events: EngineEvent[]) => {
       for (const e of events) {
+        recorderRef.current.engine(e.type, JSON.stringify(e));
         switch (e.type) {
           case "advanced":
             note(`advanced ${e.from} -> ${e.to}`);
@@ -372,6 +427,7 @@ export function RideScreen({
       if (announcement) {
         queueRef.current?.push(announcement);
         lastSpokenRef.current = remaining;
+        recorderRef.current.say(remaining, announcement.keys, announcement.label ?? "");
         const v = vibrationFor(remaining);
         if (v) navigator.vibrate?.(v);
         note(`say: ${announcement.label ?? announcement.keys.join(" ")}`);
@@ -399,6 +455,27 @@ export function RideScreen({
       lastSpokenRef.current = null;
       downgradeAnnouncedRef.current = false;
       boardingRef.current = createBoardingState();
+
+      /**
+       * Recording begins here, not on mount: a trace is only meaningful once
+       * the route and destination are known, and those come from the handoff.
+       */
+      let armed = false;
+      try { armed = sessionStorage.getItem(RECORDING_FLAG) === "1"; } catch { /* private mode */ }
+      if (armed) {
+        recorderRef.current = createRecorder(window.localStorage, {
+          device: navigator.userAgent,
+        });
+        recorderRef.current.setRoute({
+          routeId: h.routeId,
+          directionId: h.directionId,
+          boardingIndex: h.boardingIndex,
+          destinationIndex: dest,
+        });
+        setRecording(true);
+        note("RECORDING this journey");
+      }
+
       note(`tracking to ${dest}: ${seq[dest]?.name}`);
 
       push([SCREEN.ride.clip, has(`stop_${seq[dest]?.id}`) ? `stop_${seq[dest].id}` : null,
@@ -407,7 +484,15 @@ export function RideScreen({
 
       const nav = navigator as NavigatorWithBattery;
       if (nav.getBattery) {
-        void nav.getBattery().then((b) => note(`battery ${Math.round(b.level * 100)}%${b.charging ? " charging" : ""}`));
+        void nav.getBattery().then((b) => {
+          note(`battery ${Math.round(b.level * 100)}%${b.charging ? " charging" : ""}`);
+          recorderRef.current.battery(b.level, b.charging);
+          // Sampled through the ride, because drain over a real hour is one of
+          // the numbers the polling budget is meant to be set from.
+          setInterval(() => {
+            void nav.getBattery!().then((s2) => recorderRef.current.battery(s2.level, s2.charging));
+          }, 60_000);
+        });
       }
 
       watchRef.current = navigator.geolocation.watchPosition(
@@ -428,6 +513,11 @@ export function RideScreen({
             accuracyM: pos.coords.accuracy,
             timestamp: pos.timestamp,
           };
+
+          // gps-sim.ts's own shape, so the trace replays with no conversion.
+          recorderRef.current.fix({
+            lat: fix.lat, lon: fix.lon, accuracy: fix.accuracyM, timestamp: fix.timestamp,
+          });
 
           /**
            * Boarding detection runs alongside the count rather than gating it:
@@ -511,6 +601,7 @@ export function RideScreen({
   const teardown = useCallback(async () => {
     // Silence FIRST, then release hardware: a stale "Одоо буугаарай" arriving
     // after the user has left ride mode puts them off at the wrong stop.
+    recorderRef.current.flush();
     queueRef.current?.clear();
     if (watchRef.current !== null) {
       navigator.geolocation.clearWatch(watchRef.current);
@@ -555,11 +646,18 @@ export function RideScreen({
           label: `${s.name} · ${i - handoff.boardingIndex} буудлын дараа`,
         }));
     }
-    return [
+    const base: ListOption<Action>[] = [
       { value: { kind: "advance" }, keys: [RIDE.manualAdvance.clip!], label: RIDE.manualAdvance.mn },
       { value: { kind: "finish" }, keys: [RIDE.finish.clip!], label: RIDE.finish.mn },
     ];
-  }, [destIndex, handoff, sequence]);
+    if (showFieldTest) {
+      base.push(
+        { value: { kind: "record" }, keys: [], label: recording ? "Бичлэг зогсоох" : "Бичлэг эхлүүлэх" },
+        { value: { kind: "share" }, keys: [], label: "Бичлэг илгээх" },
+      );
+    }
+    return base;
+  }, [destIndex, handoff, recording, sequence, showFieldTest]);
 
   const say = useCallback((keys: (string | null)[], label: string) => push(keys, label, "normal"), [push]);
 
@@ -607,6 +705,66 @@ export function RideScreen({
     speakLadder(r.state, destIndex, Date.now());
   }, [destIndex, note, push, speakLadder, statusNow]);
 
+  /**
+   * Get the trace off the phone, without a cable.
+   *
+   * Share sheet FIRST, download second. On iOS a blob download is unreliable
+   * and lands in a Files app a blind tester then has to navigate; the share
+   * sheet is the path VoiceOver handles well and can send straight to a
+   * messaging app. `navigator.share` with files must be called inside the
+   * gesture, which is why this runs from onSelect and not from an effect.
+   */
+  const shareRecording = useCallback(async () => {
+    const rec = loadRecording(window.localStorage);
+    if (!rec || rec.trace.length === 0) {
+      note("no recording to share");
+      return;
+    }
+    const name = recordingFilename(rec);
+    const json = JSON.stringify(rec);
+    note(`recording: ${describeRecording(rec)}`);
+
+    try {
+      const file = new File([json], name, { type: "application/json" });
+      const canShare = typeof navigator.share === "function"
+        && (!navigator.canShare || navigator.canShare({ files: [file] }));
+      if (canShare) {
+        await navigator.share({ files: [file], title: name });
+        note("shared");
+        return;
+      }
+    } catch {
+      // Cancelled or unsupported — fall through to the download.
+    }
+
+    try {
+      const url = URL.createObjectURL(new Blob([json], { type: "application/json" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = name;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+      note(`downloaded ${name}`);
+    } catch (e) {
+      note(`share failed: ${e instanceof Error ? e.message : e}`);
+    }
+  }, [note]);
+
+  const toggleRecording = useCallback(() => {
+    let armed = false;
+    try { armed = sessionStorage.getItem(RECORDING_FLAG) === "1"; } catch { /* private mode */ }
+    const next = !armed;
+    try { sessionStorage.setItem(RECORDING_FLAG, next ? "1" : "0"); } catch { /* private mode */ }
+    if (!next) {
+      recorderRef.current.flush();
+      recorderRef.current = nullRecorder();
+    } else {
+      clearRecording(window.localStorage);
+    }
+    setRecording(next);
+    note(next ? "recording ARMED — restart the journey to capture it" : "recording disarmed");
+  }, [note]);
+
   const nav = useGestureNav<Action>({
     options,
     announce: (option, ctx) => say([ctx.wrapped ? GESTURE.listWrapped.clip : null, ...option.keys], option.label),
@@ -614,6 +772,8 @@ export function RideScreen({
       const a = option.value;
       if (a.kind === "destination") { void beginTracking(a.index); return; }
       if (a.kind === "advance") { manualAdvanceClamped(); return; }
+      if (a.kind === "record") { toggleRecording(); return; }
+      if (a.kind === "share") { void shareRecording(); return; }
       if (a.kind === "finish") {
         void teardown().then(() => { clearHandoff(sessionStorage); router.push("/"); });
       }
