@@ -16,9 +16,16 @@
  * countdown reads exactly like a working one right up until they have ridden
  * past their stop. Every path that stops tracking says so.
  *
- * The counting itself is in lib/transit/stop-matcher.ts, pure and tested
- * against 168 route/direction pairs. This file owns only what cannot be pure:
- * geolocation, the wake lock, vibration, and the audio queue.
+ * The counting is in lib/countdown/ — engine, geometry and ladder, all pure.
+ * This file owns only what cannot be: geolocation, the wake lock, vibration,
+ * and the audio queue.
+ *
+ * lib/transit/stop-matcher.ts used to do the counting and is now retired from
+ * this path. It is deliberately NOT deleted: its 168 route/direction pair suite
+ * is the only empirical evidence in the repository, and gps-sim.ts imports its
+ * types. The engine replaced it because the matcher has no confidence concept —
+ * only a binary `degraded` — which would leave the alight instruction as the
+ * one announcement not governed by the confidence gate.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -26,13 +33,24 @@ import { useRouter } from "next/navigation";
 import { CurrentOption, GestureSurface, type A11yOption } from "@/components/GestureSurface";
 import { AudioQueue, type Announcement, type QueueEvent } from "@/lib/transit/audio-queue";
 import { ManifestClipPlayer } from "@/lib/transit/clip-player";
-import { announceRemaining, announceTrackingDegraded, TTL, vibrationFor } from "@/lib/transit/announce";
+import { announceStatus, announceTrackingDegraded, TTL, vibrationFor } from "@/lib/transit/announce";
 import { clearHandoff, readHandoff, validateHandoff, type BusHandoff } from "@/lib/transit/handoff";
-import { shouldAnnounceStop } from "@/lib/transit/journey";
 import {
-  checkGpsLoss, createState, manualAdvance, onPosition,
-  type MatcherEvent, type MatcherState, type OrderedStop,
-} from "@/lib/transit/stop-matcher";
+  advanceManually, createEngine, onFix, onTick, remainingForAlighting, secondsToDestination,
+  type EngineEvent, type EngineState,
+} from "@/lib/countdown/engine";
+import { StopChainGeometry, type GeometryStop } from "@/lib/countdown/geometry";
+import { alightingAnnouncement, confidenceLost } from "@/lib/countdown/ladder";
+import { createEarconPlayer } from "@/lib/transit/earcons";
+import {
+  createBoardingState, onWaitingPosition, type BoardingState,
+} from "@/lib/transit/boarding";
+/**
+ * `OrderedStop` still comes from stop-matcher, which is RETIRED from this
+ * screen's runtime path but deliberately not deleted: its 168-pair suite is the
+ * only empirical evidence in the repository, and gps-sim.ts imports its types.
+ */
+import type { OrderedStop } from "@/lib/transit/stop-matcher";
 import { GESTURE, JOURNEY, RIDE, SCREEN } from "@/lib/ui/announcements";
 import { useGestureNav } from "@/lib/ui/useGestureNav";
 import type { ListOption } from "@/lib/ui/gesture-nav";
@@ -54,13 +72,23 @@ export function RideScreen({
   const [handoffError, setHandoffError] = useState<string | null>(null);
   const [sequence, setSequence] = useState<OrderedStop[]>([]);
   const [destIndex, setDestIndex] = useState<number | null>(null);
-  const [matcher, setMatcher] = useState<MatcherState | null>(null);
+  const [engine, setEngine] = useState<EngineState | null>(null);
   const [degraded, setDegraded] = useState(false);
   const [log, setLog] = useState<string[]>([]);
 
   const queueRef = useRef<AudioQueue | null>(null);
   const ctxRef = useRef<AudioContext | null>(null);
-  const matcherRef = useRef<MatcherState | null>(null);
+  const engineRef = useRef<EngineState | null>(null);
+  const geometryRef = useRef<StopChainGeometry | null>(null);
+  const boardingRef = useRef<BoardingState>(createBoardingState());
+  /**
+   * The count at the last thing SPOKEN, not at the last fix.
+   *
+   * The ladder compares against this to make a rung fire once. Comparing
+   * against the last fix re-announces on every tick that holds the same value.
+   */
+  const lastSpokenRef = useRef<number | null>(null);
+  const downgradeAnnouncedRef = useRef(false);
   const watchRef = useRef<number | null>(null);
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
   const silentAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -170,7 +198,17 @@ export function RideScreen({
     if (ctxRef.current.state === "suspended") await ctxRef.current.resume();
     if (!queueRef.current) {
       const player = new ManifestClipPlayer(manifest, ctxRef.current);
-      const queue = new AudioQueue(player);
+      /**
+       * Earcons are synthesized, so they survive the case where every clip
+       * failed to decode — which is exactly when the rider most needs to know
+       * something happened. Passing them here is what makes the parallel-channel
+       * rule true: speech, earcon and haptic all carry the same state.
+       */
+      const ctx = ctxRef.current!;
+      const queue = new AudioQueue(player, {
+        earcons: createEarconPlayer(() => ctx),
+        vibrate: (pattern) => navigator.vibrate?.(pattern),
+      });
       queue.on((e: QueueEvent) => {
         if (e.type === "missing") note(`NO CLIP: ${e.keys.join(", ")}`);
         else if (e.type === "stalled") note(`STALLED: ${e.key} — abandoned so the queue keeps moving`);
@@ -216,7 +254,7 @@ export function RideScreen({
 
   useEffect(() => {
     const onVisible = () => {
-      if (document.visibilityState === "visible" && matcherRef.current && !wakeLockRef.current) {
+      if (document.visibilityState === "visible" && engineRef.current && !wakeLockRef.current) {
         void acquireWakeLock();
       }
     };
@@ -226,49 +264,120 @@ export function RideScreen({
 
   // ----------------------------------------------------------- events
 
-  const handleEvents = useCallback(
-    (events: MatcherEvent[], dest: number) => {
+  /**
+   * The stop set of the boarded variant, for the §6.1 wrong-BUS test.
+   *
+   * The engine cannot answer "is the globally nearest stop on this variant"
+   * without all 923 stops, so it stays pure and the caller decides. The ride
+   * page already loads the full set server-side and passes it as props, so this
+   * costs no second load and no new allocation on a screen expected to survive
+   * an hour on a locked phone.
+   */
+  const variantStopIds = useMemo(() => new Set(sequence.map((s) => s.id)), [sequence]);
+
+  const nearestIsOnVariant = useCallback(
+    (lat: number, lon: number): boolean | undefined => {
+      if (variantStopIds.size === 0) return undefined;
+      let bestId: string | null = null;
+      let bestD = Infinity;
+      for (const st of stops) {
+        const dLat = (st.lat - lat) * 111_132;
+        const dLon = (st.lon - lon) * 111_320 * Math.cos((lat * Math.PI) / 180);
+        const d = dLat * dLat + dLon * dLon;
+        if (d < bestD) { bestD = d; bestId = st.id; }
+      }
+      return bestId === null ? undefined : variantStopIds.has(bestId);
+    },
+    [stops, variantStopIds],
+  );
+
+  /**
+   * Engine events → log, UI state, and the ONE announcement the engine owns.
+   *
+   * The ladder owns the count's announcements; this owns only the state
+   * transitions. wrong-direction is deliberately logged and never spoken: the
+   * detector is not retunable on synthetic data (see NOTES.md), and a spurious
+   * alert that makes a rider leave a CORRECT bus is a real harm.
+   */
+  const handleEngineEvents = useCallback(
+    (events: EngineEvent[]) => {
       for (const e of events) {
-        if (e.type === "degraded") {
-          setDegraded(true);
-          note(`DEGRADED: ${e.reason}`);
-          queueRef.current?.push(announceTrackingDegraded());
-          navigator.vibrate?.([100, 80, 100]);
-        } else if (e.type === "recovered") {
-          setDegraded(false);
-          note("tracking recovered");
-        } else if (e.type === "stop-passed") {
-          note(`passed ${e.index}: ${e.stop.name} (${e.remaining} to go)`);
-          // Every stop within the last five, every third before that.
-          // Announcing all of them on a 36-stop run trains the user to stop
-          // listening, and the value of the last few is that they are rare.
-          if (shouldAnnounceStop(e.remaining)) {
-            push(
-              [has(`stop_${e.stop.id}`) ? `stop_${e.stop.id}` : "bus_unnamed_stop",
-                JOURNEY.passedSuffix.clip,
-                e.remaining > 0 && e.remaining <= 40 ? `num_${e.remaining}` : null,
-                e.remaining > 0 ? RIDE.stopsRemaining.clip : null],
-              `passed ${e.stop.name}, ${e.remaining} left`,
-              e.remaining <= 1 ? "critical" : "normal",
-            );
-          }
-          const v = vibrationFor(e.remaining);
-          if (v) navigator.vibrate?.(v);
-        } else if (e.type === "arrived") {
-          note(`ARRIVED at ${e.stop.name}`);
-          const a = announceRemaining(0, e.stop, has);
-          if (a) queueRef.current?.push(a);
-          navigator.vibrate?.(vibrationFor(0) ?? [800]);
-        } else if (e.type === "overshoot") {
-          note(`OVERSHOT at ${e.stop.name}`);
-          const a = announceRemaining(-1, e.stop, has);
-          if (a) queueRef.current?.push(a);
-          navigator.vibrate?.(vibrationFor(-1) ?? [200, 100, 200]);
+        switch (e.type) {
+          case "advanced":
+            note(`advanced ${e.from} -> ${e.to}`);
+            break;
+          case "at-stop":
+            note(`at stop ${e.index}`);
+            break;
+          case "wrong-direction":
+            // LOGGING ONLY. No speech, no string, no earcon.
+            note(`WRONG DIRECTION (logging only) at index ${e.index}`);
+            break;
+          case "off-route":
+            note(`OFF ROUTE (logging only) at index ${e.index}`);
+            break;
+          case "layover":
+            note(`layover at ${e.index}`);
+            break;
+          case "confidence":
+            note(`confidence ${e.from} -> ${e.to} (${e.source})`);
+            setDegraded(e.to === "none" || e.to === "low");
+            break;
+          case "rejected":
+            // Diagnostic only: 2455 of these across 146 simulated journeys.
+            break;
         }
       }
-      void dest;
     },
-    [has, note, push],
+    [note],
+  );
+
+  /**
+   * Run the ladder for the current engine state.
+   *
+   * INVARIANT 8: a confidence collapse is announced, once. To someone who
+   * cannot see the counter, silence reads as "not there yet" right up until
+   * they have ridden past their stop, so a countdown that stops working has to
+   * say so out loud.
+   */
+  const speakLadder = useCallback(
+    (state: EngineState, dest: number, now: number) => {
+      const geometry = geometryRef.current;
+      if (!geometry) return;
+
+      if (state.confidence === "none" && !downgradeAnnouncedRef.current) {
+        downgradeAnnouncedRef.current = true;
+        queueRef.current?.push(confidenceLost(now));
+        navigator.vibrate?.([200, 100, 200]);
+        note("confidence lost — announced once");
+        return;
+      }
+      if (state.confidence !== "none") downgradeAnnouncedRef.current = false;
+
+      const remaining = remainingForAlighting(state, dest);
+      const destination = sequence[dest];
+      if (!destination) return;
+
+      const announcement = alightingAnnouncement(
+        {
+          remaining,
+          confidence: state.confidence,
+          destination,
+          now,
+          secondsToDestination: secondsToDestination(state, geometry, dest),
+        },
+        lastSpokenRef.current,
+        has,
+      );
+      if (announcement) {
+        queueRef.current?.push(announcement);
+        lastSpokenRef.current = remaining;
+        const v = vibrationFor(remaining);
+        if (v) navigator.vibrate?.(v);
+        note(`say: ${announcement.label ?? announcement.keys.join(" ")}`);
+      }
+    },
+    [has, note, sequence],
   );
 
   // ------------------------------------------------------------ start
@@ -279,10 +388,17 @@ export function RideScreen({
       await ensureAudio();
       await acquireWakeLock();
 
-      const initial = createState(h.boardingIndex, dest, Date.now());
-      matcherRef.current = initial;
-      setMatcher(initial);
+      const chain: GeometryStop[] = seq.map((s) => ({ id: s.id, name: s.name, lat: s.lat, lon: s.lon }));
+      const geometry = new StopChainGeometry(chain);
+      geometryRef.current = geometry;
+
+      const initial = createEngine(h.boardingIndex, geometry);
+      engineRef.current = initial;
+      setEngine(initial);
       setDestIndex(dest);
+      lastSpokenRef.current = null;
+      downgradeAnnouncedRef.current = false;
+      boardingRef.current = createBoardingState();
       note(`tracking to ${dest}: ${seq[dest]?.name}`);
 
       push([SCREEN.ride.clip, has(`stop_${seq[dest]?.id}`) ? `stop_${seq[dest].id}` : null,
@@ -296,25 +412,56 @@ export function RideScreen({
 
       watchRef.current = navigator.geolocation.watchPosition(
         (pos) => {
-          const current = matcherRef.current;
-          if (!current) return;
-          const r = onPosition(
-            current,
-            { lat: pos.coords.latitude, lon: pos.coords.longitude, accuracy: pos.coords.accuracy, timestamp: pos.timestamp },
-            // `seq`, not the state variable: when start() loads the handoff and
-            // begins tracking in one turn, `sequence` has not re-rendered yet
-            // and every fix would be matched against an empty route.
-            seq,
+          const current = engineRef.current;
+          const geom = geometryRef.current;
+          if (!current || !geom) return;
+          const now = Date.now();
+
+          /**
+           * ADAPTER: the engine's Fix is `accuracyM`; geolocation and the
+           * retired matcher both say `accuracy`. Getting this wrong yields
+           * undefined, then NaN, and the count simply stops moving in silence.
+           */
+          const fix = {
+            lat: pos.coords.latitude,
+            lon: pos.coords.longitude,
+            accuracyM: pos.coords.accuracy,
+            timestamp: pos.timestamp,
+          };
+
+          /**
+           * Boarding detection runs alongside the count rather than gating it:
+           * the wait screen has already committed a route, so the count starts
+           * from the boarding index either way. What this adds is the spoken
+           * confirmation that the rider is on a bus following the corridor —
+           * sustained agreement, because a passing car has a bus's speed
+           * signature but not its path.
+           */
+          const b = onWaitingPosition(
+            boardingRef.current,
+            { lat: fix.lat, lon: fix.lon, accuracy: fix.accuracyM, timestamp: fix.timestamp },
+            chain,
+            { fromIndex: h.boardingIndex },
           );
-          matcherRef.current = r.state;
-          setMatcher(r.state);
-          handleEvents(r.events, dest);
+          boardingRef.current = b.state;
+          for (const ev of b.events) {
+            if (ev.type === "boarded") {
+              note(`boarded, ${ev.speedKmh.toFixed(0)} km/h in corridor`);
+              push([JOURNEY.boardedDetected.clip], "boarded", "normal");
+            }
+          }
+
+          const r = onFix(current, fix, geom, now, nearestIsOnVariant(fix.lat, fix.lon));
+          engineRef.current = r.state;
+          setEngine(r.state);
+          handleEngineEvents(r.events);
+          speakLadder(r.state, dest, now);
         },
         (err) => note(`geolocation error: ${err.message}`),
         { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 },
       );
     },
-    [acquireWakeLock, ensureAudio, handleEvents, handoff, has, note, push, sequence],
+    [acquireWakeLock, ensureAudio, handleEngineEvents, handoff, has, nearestIsOnVariant, note, push, sequence, speakLadder],
   );
 
   /**
@@ -324,19 +471,23 @@ export function RideScreen({
    * nothing throws. Only a timer comparing against the last good fix notices.
    */
   useEffect(() => {
-    if (!matcher || destIndex === null) return;
+    if (!engine || destIndex === null) return;
     const timer = setInterval(() => {
-      const current = matcherRef.current;
+      const current = engineRef.current;
       if (!current) return;
-      const r = checkGpsLoss(current, Date.now());
+      const now = Date.now();
+      const r = onTick(current, now);
       if (r.events.length) {
-        matcherRef.current = r.state;
-        setMatcher(r.state);
-        handleEvents(r.events, destIndex);
+        engineRef.current = r.state;
+        setEngine(r.state);
+        handleEngineEvents(r.events);
+        // The loss itself has to become audible; see speakLadder.
+        speakLadder(r.state, destIndex, now);
+        if (r.state.confidence === "none") queueRef.current?.push(announceTrackingDegraded(now));
       }
     }, 10_000);
     return () => clearInterval(timer);
-  }, [destIndex, handleEvents, matcher]);
+  }, [destIndex, engine, handleEngineEvents, speakLadder]);
 
   /**
    * First gesture: read the handoff, open audio, and start counting.
@@ -371,7 +522,8 @@ export function RideScreen({
     }
     silentAudioRef.current?.pause();
     silentAudioRef.current = null;
-    matcherRef.current = null;
+    engineRef.current = null;
+    geometryRef.current = null;
     if (ctxRef.current && ctxRef.current.state !== "closed") await ctxRef.current.close().catch(() => {});
     ctxRef.current = null;
     queueRef.current = null;
@@ -388,7 +540,7 @@ export function RideScreen({
 
   // ---------------------------------------------------------- options
 
-  const remaining = matcher && destIndex !== null ? destIndex - matcher.currentIndex : null;
+  const remaining = engine && destIndex !== null ? remainingForAlighting(engine, destIndex) : null;
 
   const options: ListOption<Action>[] = useMemo(() => {
     // Before tracking starts, the list is the destination picker — only reached
@@ -412,23 +564,48 @@ export function RideScreen({
   const say = useCallback((keys: (string | null)[], label: string) => push(keys, label, "normal"), [push]);
 
   const statusNow = useCallback(() => {
-    const current = matcherRef.current;
-    const at = current ? sequence[current.currentIndex] : null;
-    const target = destIndex !== null ? sequence[destIndex] : null;
-    const left = current && destIndex !== null ? destIndex - current.currentIndex : null;
+    const current = engineRef.current;
+    const at = current ? sequence[current.stopIndex] ?? null : null;
+    const target = destIndex !== null ? sequence[destIndex] ?? null : null;
+    const left = current && destIndex !== null ? remainingForAlighting(current, destIndex) : null;
 
-    push(
-      [
-        JOURNEY.statusPrefix.clip,
-        at && has(`stop_${at.id}`) ? `stop_${at.id}` : null,
-        target && has(`stop_${target.id}`) ? `stop_${target.id}` : null,
-        left !== null && left > 0 && left <= 40 ? `num_${left}` : null,
-        left !== null && left > 0 ? RIDE.stopsRemaining.clip : null,
-      ],
-      `status: at ${at?.name ?? "?"}, ${left ?? "?"} to ${target?.name ?? "?"}`,
-      "critical",
+    // Built in lib/transit/announce.ts, so the overshot-rider path is covered by
+    // the suite rather than by inspection of a screen that has no tests.
+    queueRef.current?.push(
+      announceStatus(
+        {
+          at, destination: target, remaining: left,
+          statusPrefixKey: JOURNEY.statusPrefix.clip!,
+          stopsRemainingKey: RIDE.stopsRemaining.clip!,
+        },
+        has,
+      ),
     );
-  }, [destIndex, has, push, sequence]);
+  }, [destIndex, has, sequence]);
+
+  /**
+   * Manual advance, clamped at the destination.
+   *
+   * Pressing against the clamp SPEAKS. A rider pressing repeatedly at a button
+   * that answers with nothing has no way to tell a clamp from a frozen app, so
+   * the clamp answers with the full status — which is the question they were
+   * really asking.
+   */
+  const manualAdvanceClamped = useCallback(() => {
+    const current = engineRef.current;
+    if (!current || destIndex === null) return;
+    const r = advanceManually(current, destIndex);
+    if (r.clamped) {
+      note(`manual advance CLAMPED at ${current.stopIndex} (destination ${destIndex})`);
+      statusNow();
+      return;
+    }
+    engineRef.current = r.state;
+    setEngine(r.state);
+    note(`manual advance -> ${r.state.stopIndex}`);
+    push([RIDE.manualAdvance.clip], "manual advance", "normal");
+    speakLadder(r.state, destIndex, Date.now());
+  }, [destIndex, note, push, speakLadder, statusNow]);
 
   const nav = useGestureNav<Action>({
     options,
@@ -436,15 +613,7 @@ export function RideScreen({
     onSelect: (option) => {
       const a = option.value;
       if (a.kind === "destination") { void beginTracking(a.index); return; }
-      if (a.kind === "advance") {
-        const current = matcherRef.current;
-        if (!current || destIndex === null) return;
-        const r = manualAdvance(current, sequence);
-        matcherRef.current = r.state;
-        setMatcher(r.state);
-        handleEvents(r.events, destIndex);
-        return;
-      }
+      if (a.kind === "advance") { manualAdvanceClamped(); return; }
       if (a.kind === "finish") {
         void teardown().then(() => { clearHandoff(sessionStorage); router.push("/"); });
       }
@@ -485,7 +654,7 @@ export function RideScreen({
     );
   }
 
-  const title = matcher?.overshot
+  const title = (remaining !== null && remaining < 0)
     ? RIDE.passedStop.mn
     : remaining !== null
       ? `${remaining} ${RIDE.stopsRemaining.mn}`

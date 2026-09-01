@@ -8,7 +8,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { announceArrival, isUnhedgedTime } from "./announce";
+import { announceArrival, isUnhedgedTime,
+  announceStatus,
+} from "./announce";
 import type { Arrival } from "./types";
 
 const has = () => true;
@@ -210,4 +212,59 @@ test("the prefix survives into speech — Ч:9 and Д:9 must differ", () => {
   const a = allRoutes.find((r) => r.displayName === "Ч:9")!;
   const b = allRoutes.find((r) => r.displayName === "Д:9")!;
   assert.notEqual(a.spokenName, b.spokenName);
+});
+
+// ------------------------------------------- the overshot rider's escape hatch
+
+test("long-press while OVERSHOT names the missed stop and how far past", () => {
+  /**
+   * This guarded both the number and the suffix on `left > 0`, so once the
+   * destination was behind them a long press produced a prefix and two stop
+   * names with no relationship between them — at exactly the moment the rider
+   * had least idea where they were. It is their only escape hatch.
+   */
+  const a = announceStatus(
+    {
+      at: { id: "111", name: "somewhere" },
+      destination: { id: "222", name: "the stop they wanted" },
+      remaining: -2,
+      statusPrefixKey: "ui_journey_status",
+      stopsRemainingKey: "bus_stops_remaining",
+    },
+    () => true,
+  );
+  assert.deepEqual(a.keys, [
+    "ui_journey_status", "bus_passed_stop", "stop_222", "num_2", "bus_stops_past_suffix",
+  ]);
+  assert.equal(a.priority, "critical", "the status query must preempt a queued stop name");
+});
+
+test("an overshoot status with no suffix clip drops the count, never a bare number", () => {
+  // Same all-or-none rule as countdownKeys: a number with no suffix sounds like
+  // a number that was said and misheard.
+  const a = announceStatus(
+    {
+      at: null,
+      destination: { id: "222", name: "d" },
+      remaining: -2,
+      statusPrefixKey: "ui_journey_status",
+      stopsRemainingKey: "bus_stops_remaining",
+    },
+    (k) => k !== "bus_stops_past_suffix",
+  );
+  assert.deepEqual(a.keys, ["ui_journey_status", "bus_passed_stop", "stop_222"]);
+});
+
+test("a status while still riding is unchanged by the overshoot path", () => {
+  const a = announceStatus(
+    {
+      at: { id: "111", name: "here" },
+      destination: { id: "222", name: "there" },
+      remaining: 2,
+      statusPrefixKey: "ui_journey_status",
+      stopsRemainingKey: "bus_stops_remaining",
+    },
+    () => true,
+  );
+  assert.deepEqual(a.keys, ["ui_journey_status", "stop_111", "stop_222", "num_2", "bus_stops_remaining"]);
 });
