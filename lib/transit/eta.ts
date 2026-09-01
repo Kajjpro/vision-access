@@ -185,6 +185,30 @@ export function waitVibration(mark: number): number[] | null {
   return null;
 }
 
+/**
+ * Earcon for a countdown mark — the THIRD channel, absent until now.
+ *
+ * §5 requires speech, earcon and haptic to carry the same state, any one alone
+ * sufficient to act on, because UB buses are loud enough that audio alone fails
+ * regularly. The wait screen had two of the three: it speaks and it vibrates,
+ * and this module defined `waitVibration` beside the speech precisely so they
+ * could not drift — but there has never been an earcon ladder at all, on the
+ * one screen that has actually been used.
+ *
+ * Same reasoning as `waitVibration` for living here: a channel defined
+ * elsewhere drifts out of step, and then the phone in a pocket says something
+ * different from the phone at an ear.
+ *
+ * The rungs mirror the haptic ones exactly: a nudge at 10, "be at the kerb" and
+ * "card out" as the rising alert pair, and the urgent contour once the bus is
+ * a minute out or actually here.
+ */
+export function earconForMark(mark: number): "soft" | "alert" | "urgent" {
+  if (mark >= 10) return "soft";
+  if (mark >= 3) return "alert";
+  return "urgent";
+}
+
 /** The bus is due: the heaviest pattern in the app after the ride-side arrival. */
 export const DUE_VIBRATION = [400, 120, 400] as number[];
 

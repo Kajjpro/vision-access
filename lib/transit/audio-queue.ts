@@ -334,7 +334,23 @@ export class AudioQueue {
         }
 
         const playable = announcement.keys.filter((k) => this.player.has(k));
-        if (playable.length === 0) {
+
+        /**
+         * A TOTAL DECODE FAILURE MUST STILL RING AND BUZZ.
+         *
+         * This used to `continue` here, dropping the announcement whole — so
+         * the one case earcons exist for was the one case they never fired.
+         * lib/transit/earcons.ts says they "have to survive the case where
+         * every clip failed to decode, which is exactly the case where the
+         * rider most needs to know something happened", and the queue made that
+         * impossible. Three lines above, "a missing clip must never become
+         * silence" — and then it became exactly silence once ALL of them were.
+         *
+         * §5 parallel channels: any one of speech, earcon and haptic alone must
+         * be enough to act on. So the utterance is only abandoned when there is
+         * nothing left in ANY channel.
+         */
+        if (playable.length === 0 && !announcement.earcon && !announcement.haptic?.length) {
           this.current = null;
           continue;
         }
@@ -378,6 +394,7 @@ export class AudioQueue {
           continue;
         }
 
+        // May be empty: earcon and haptic have already carried the state.
         for (const key of playable) {
           try {
             // Raced against a watchdog: a clip that never settles must not take

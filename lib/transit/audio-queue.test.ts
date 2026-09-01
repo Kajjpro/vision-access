@@ -257,3 +257,56 @@ test("a critical announcement still waits for the microphone", async () => {
   await settle(60);
   assert.deepEqual(player.played, ["URGENT"]);
 });
+
+// ------------------------------------------- §5 parallel channels survive
+
+/** Decodes nothing — the total-failure case earcons exist for. */
+class DeadPlayer implements ClipPlayer {
+  has() { return false; }
+  play() { return Promise.resolve(); }
+}
+
+test("a total decode failure still fires the earcon and the haptic", async () => {
+  /**
+   * The queue used to abandon an announcement whose clips had all failed,
+   * which made the one case earcons exist for the one case they never fired.
+   * earcons.ts is explicit that they must survive it, because that is exactly
+   * when the rider most needs to know something happened.
+   */
+  const earcons: string[] = [];
+  const buzzes: number[][] = [];
+  const queue = new AudioQueue(new DeadPlayer(), {
+    earcons: { play: async (id: string) => { earcons.push(id); } },
+    vibrate: (p: number[]) => buzzes.push(p),
+    wait: async () => {},
+  });
+
+  queue.push({
+    keys: ["nothing_decodes"],
+    priority: "critical",
+    earcon: "urgent",
+    haptic: [800],
+    expiresAt: Date.now() + 60_000,
+    label: "arrival with no clips",
+  });
+  await settle(120);
+
+  assert.deepEqual(earcons, ["urgent"], "the earcon was dropped along with the words");
+  assert.deepEqual(buzzes, [[800]], "the haptic was dropped along with the words");
+});
+
+test("an announcement with nothing in ANY channel is still dropped", async () => {
+  // The exception is for the redundant channels, not a licence to keep silent
+  // announcements alive in the queue.
+  const events: string[] = [];
+  const queue = new AudioQueue(new DeadPlayer(), { wait: async () => {} });
+  queue.on((e) => events.push(e.type));
+  queue.push({
+    keys: ["nothing_decodes"],
+    priority: "normal",
+    expiresAt: Date.now() + 60_000,
+    label: "nothing to say",
+  });
+  await settle(120);
+  assert.ok(!events.includes("start"), "an announcement with no channels was started anyway");
+});
