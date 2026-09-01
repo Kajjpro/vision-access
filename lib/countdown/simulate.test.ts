@@ -67,8 +67,11 @@ test("GOLDEN: a clean ride, from the first word to the overshoot", () => {
     `remaining=1 earcon:alert bus_next_stop stop_${CHAIN[DEST].id} bus_get_ready`,
     `remaining=0 earcon:urgent stop_${CHAIN[DEST].id} bus_get_off_now`,
     `remaining=-1 earcon:urgent bus_passed_stop bus_get_off_next_stop`,
-    `remaining=-2 earcon:alert num_2 bus_stops_past_suffix`,
-    `remaining=-3 earcon:alert num_3 bus_stops_past_suffix`,
+    // Every follow-up re-speaks the anchor: the suffix means "N stops have
+    // passed", and only bus_passed_stop says WHICH stop was missed. By -3 the
+    // original anchor is two stops behind, so each line stands alone instead.
+    `remaining=-2 earcon:alert bus_passed_stop num_2 bus_stops_past_suffix`,
+    `remaining=-3 earcon:alert bus_passed_stop num_3 bus_stops_past_suffix`,
   ]);
 
   /**

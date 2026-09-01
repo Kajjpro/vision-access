@@ -2635,5 +2635,23 @@
     "provider": "azure",
     "voice": "mn-MN-YesuiNeural",
     "bitrate": "16k"
+  },
+  "bus_stops_past_suffix": {
+    "path": "/audio/transit/bus_stops_past_suffix.opus",
+    "pathAac": "/audio/transit/bus_stops_past_suffix.m4a",
+    "durationMs": 1780,
+    "sha": "0b80b36aee02c48d1f7a3034e809e0a1258447954f501b14f7942fb9c9a7d1b9",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
+  },
+  "bus_get_off_next_stop": {
+    "path": "/audio/transit/bus_get_off_next_stop.opus",
+    "pathAac": "/audio/transit/bus_get_off_next_stop.m4a",
+    "durationMs": 2200,
+    "sha": "b6625e80e7bce71219cd961d8930a29fa9a3b61af0961f3463246307e0bd9242",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural",
+    "bitrate": "16k"
   }
 }

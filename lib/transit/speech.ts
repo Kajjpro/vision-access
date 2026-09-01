@@ -236,6 +236,20 @@ export const FIXED_PHRASES: { id: string; mn: string; en: string }[] = [
   { id: "bus_get_ready", mn: "Бэлдээрэй", en: "get ready" },
   { id: "bus_get_off_now", mn: "Одоо буугаарай", en: "get off now" },
   { id: "bus_passed_stop", mn: "Та буудлаа өнгөрчээ", en: "you passed your stop" },
+  /**
+   * The overshoot follow-ups. Both mirror an existing reviewed phrase rather
+   * than being composed: `буудал өнгөрлөө` is `ui_ride_manual_advance` with its
+   * numeral removed, and so is the sibling of `буудал үлдлээ` — same noun, same
+   * slot, same tense marker under vowel harmony. `Дараагийн буудалд буугаарай`
+   * keeps the imperative of `bus_get_off_now` and takes its place phrase from
+   * `bus_next_stop`.
+   *
+   * The suffix means "N stops have passed", NOT "N stops past your stop". What
+   * supplies the destination is `bus_passed_stop`, which is why every overshoot
+   * utterance re-speaks it — see announceRemaining.
+   */
+  { id: "bus_stops_past_suffix", mn: "буудал өнгөрлөө", en: "… stops have passed (suffix, pairs with num_N)" },
+  { id: "bus_get_off_next_stop", mn: "Дараагийн буудалд буугаарай", en: "get off at the next stop" },
   // --- degraded states -------------------------------------------------
   // One phrase per CAUSE. Speaking "location unavailable" for a rate limit
   // sends a user looking for open sky, which cannot help them; the wrong

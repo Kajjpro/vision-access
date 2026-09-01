@@ -344,8 +344,21 @@ export function announceRemaining(
      * a number that was said and misheard rather than one that was never said.
      */
     if (!hasClip("bus_stops_past_suffix") || !hasClip(numberKey(past))) return null;
+    /**
+     * EVERY FOLLOW-UP RE-SPEAKS THE ANCHOR.
+     *
+     * `буудал өнгөрлөө` means "N stops have passed" — it does not itself say
+     * which stop was missed. The only thing that supplies that is
+     * `bus_passed_stop`, and by the third follow-up that anchor is two stops
+     * and several minutes behind. A disoriented rider is exactly the wrong
+     * person to ask to carry context across minutes of traffic noise, so each
+     * utterance is made to stand alone instead.
+     *
+     * The repetition is the point, not an oversight. `bus_passed_stop` is
+     * already rendered, so a self-contained sentence costs nothing to produce.
+     */
     return {
-      keys: [numberKey(past), "bus_stops_past_suffix"],
+      keys: ["bus_passed_stop", numberKey(past), "bus_stops_past_suffix"],
       priority: "normal",
       earcon: "alert",
       haptic,
