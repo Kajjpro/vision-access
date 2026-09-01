@@ -119,7 +119,14 @@ export function RideScreen({
    */
   const [showFieldTest, setShowFieldTest] = useState(false);
 
-  useEffect(() => {
+  /**
+   * Read on the FIRST GESTURE, not in a mount effect.
+   *
+   * Same reason `loadHandoff` gives: sessionStorage does not exist during SSR,
+   * so reading it in an effect renders once without it and again with it — and
+   * the second render lands while the user may already be swiping.
+   */
+  const armFieldTest = useCallback(() => {
     try {
       const wanted = new URLSearchParams(window.location.search).get("record") === "1";
       const already = sessionStorage.getItem(RECORDING_FLAG) !== null;
@@ -589,12 +596,13 @@ export function RideScreen({
   const start = useCallback(async () => {
     if (startedRef.current) return;
     startedRef.current = true;
+    armFieldTest();
     await ensureAudio();
     const loaded = loadHandoff();
     if (loaded?.destIndex != null) {
       void beginTracking(loaded.destIndex, loaded.sequence, loaded.handoff);
     }
-  }, [beginTracking, ensureAudio, loadHandoff]);
+  }, [armFieldTest, beginTracking, ensureAudio, loadHandoff]);
 
   // ---------------------------------------------------------- teardown
 
