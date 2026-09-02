@@ -88,6 +88,52 @@ if (!beats.length) {
   for (const s of gpsStalls.slice(0, 6)) console.log(`     ${s}`);
   const hiddenBeats = beats.filter((b) => !b.visible).length;
   console.log(`  heartbeats while hidden: ${hiddenBeats} — proof the page kept running in the background`);
+
+  /**
+   * THE THIRD FAILURE. Page running, fixes arriving, audio dead — invisible to
+   * both clocks above, and the one that produces a silent journey that looks
+   * like a working one.
+   */
+  const deadAudio = beats.filter((b) => b.audio !== "running");
+  console.log(`  beats with audio NOT running: ${deadAudio.length}/${beats.length}`);
+  if (deadAudio.length) {
+    const states: Record<string, number> = {};
+    for (const b of deadAudio) states[b.audio] = (states[b.audio] ?? 0) + 1;
+    console.log(`     states: ${JSON.stringify(states)}`);
+    console.log(`     first at ${rel(deadAudio[0].t)}, last at ${rel(deadAudio[deadAudio.length - 1].t)}`);
+  }
+}
+
+// --------------------------------------------------- announcements lost
+const silent = rec.events.filter((e): e is Extract<typeof e, { kind: "silent-push" }> => e.kind === "silent-push");
+console.log(`\n--- ANNOUNCEMENTS PUSHED INTO A DEAD CONTEXT: ${silent.length} ---`);
+if (!silent.length) {
+  console.log("  none — every announcement reached a running context");
+} else {
+  console.log("  These were built, queued, and never heard. This is the evidence.");
+  for (const e of silent) {
+    console.log(`  ${rel(e.t).padStart(7)}  audio=${e.audio}  ${e.label || e.keys.join(" ")}`);
+  }
+}
+
+// ---------------------------------------------------------- haptics
+const buzzes = rec.events.filter((e): e is Extract<typeof e, { kind: "haptic" }> => e.kind === "haptic");
+console.log(`\n--- HAPTICS: ${buzzes.length} calls ---`);
+if (!buzzes.length) {
+  console.log("  none fired");
+} else {
+  const absent = buzzes.filter((b) => b.accepted === undefined).length;
+  const refused = buzzes.filter((b) => b.accepted === false).length;
+  const ok = buzzes.filter((b) => b.accepted === true).length;
+  console.log(`  accepted ${ok} · refused ${refused} · API ABSENT ${absent}`);
+  if (absent === buzzes.length) {
+    console.log("  navigator.vibrate does not exist on this device.");
+    console.log("  The haptic channel is UNAVAILABLE, so §5 parallel channels cannot be");
+    console.log("  satisfied by buzzing when audio is dead. Speech is the only channel.");
+  } else if (ok > 0) {
+    console.log("  The haptic channel works on this device — it needs no gesture and no");
+    console.log("  audio graph, so it survives the failure that silences speech.");
+  }
 }
 
 // -------------------------------------------------------------- lifecycle

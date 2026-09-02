@@ -194,13 +194,13 @@ test("heartbeats make a page stall distinguishable from a geolocation stall", ()
   for (let i = 0; i < 3; i++) {
     clock += 5000;
     r.fix({ lat: 1, lon: 2, accuracy: 10, timestamp: clock });
-    r.heartbeat(true);
+    r.heartbeat(true, "running");
   }
   // GEOLOCATION stall: the page keeps beating, no fixes arrive.
-  for (let i = 0; i < 3; i++) { clock += 5000; r.heartbeat(true); }
+  for (let i = 0; i < 3; i++) { clock += 5000; r.heartbeat(true, "running"); }
   // PAGE stall: no beats at all for a minute, then it comes back.
   clock += 60_000;
-  r.heartbeat(false);
+  r.heartbeat(false, "suspended");
 
   const beats = r.snapshot().events.filter((e) => e.kind === "heartbeat") as
     Extract<ReturnType<typeof r.snapshot>["events"][number], { kind: "heartbeat" }>[];
