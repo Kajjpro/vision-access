@@ -34,7 +34,10 @@ function discoverRoutes(dir = APP, prefix = ""): string[] {
 }
 
 const routes = discoverRoutes();
-const homeSource = readFileSync(join(APP, "page.tsx"), "utf8");
+// The tile table lives in HomeGestures.tsx since the gesture rebuild; page.tsx
+// is now a thin wrapper. Both are read so the assertions follow the code.
+const homeSource =
+  readFileSync(join(APP, "page.tsx"), "utf8") + "\n" + readFileSync(join(APP, "HomeGestures.tsx"), "utf8");
 
 test("the home screen declares at least one navigable tile", () => {
   assert.match(
@@ -90,9 +93,9 @@ test("no tile is both routed and inline — they dispatch differently", () => {
   }
 });
 
-test("mode dispatch actually consults which tile was tapped", () => {
+test("mode dispatch actually consults which tile was selected", () => {
   // The original bug: `setActive(id)` was followed by an unconditional
-  // `<WalkMode />`, so every ready tile rendered WalkMode whatever was tapped.
+  // `<WalkMode />`, so every ready mode rendered WalkMode whatever was chosen.
   assert.match(
     homeSource,
     /if \(active === "walk"\)/,
@@ -104,6 +107,20 @@ test("mode dispatch actually consults which tile was tapped", () => {
     /if \(mode\.route\)\s*\{?\s*router\.push\(mode\.route\)/,
     "routed modes must navigate"
   );
+});
+
+test("the home screen has no positional touch targets", () => {
+  // The whole point of the rebuild: no quadrant to find, no button to aim at.
+  assert.doesNotMatch(homeSource, /data-mode=/, "quadrant hit-testing must be gone");
+  assert.doesNotMatch(homeSource, /elementFromPoint/, "position-based dispatch must be gone");
+  assert.match(homeSource, /useGestureNav/, "home must use the shared gesture model");
+});
+
+test("every mode option carries a spoken grid position", () => {
+  const block = /const MODES: Mode\[\] = \[([\s\S]*?)\];/.exec(homeSource)!;
+  for (const line of block[1].split("\n").filter((l) => l.includes("id:"))) {
+    assert.match(line, /position: POSITION\./, `no spoken position: ${line.trim()}`);
+  }
 });
 
 test("every discovered page has a default export", () => {
