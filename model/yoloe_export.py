@@ -1,5 +1,21 @@
 #!/usr/bin/env python3
 """
+NOT THE SHIPPING PATH ANY MORE. See model/coco_export.py.
+
+The app now runs a stock COCO-80 detector. This script bakes an arbitrary
+vocabulary into YOLOE via CLIP text embeddings, which produced a model that
+scored 0.94 on person and <0.02 on pole — the per-class hit table at the end of
+this file is what measured that, and lib/coco.ts is what acted on it.
+
+It is kept, not deleted, because it is still the right tool for one job: trying
+a NEW vocabulary cheaply. If you want to know whether some class is worth
+labelling data for, prompt it here and read the hit table before committing to
+a training run. Just do not expect what comes out to be shippable — the classes
+that matter to this app and are absent from COCO are exactly the ones YOLOE is
+worst at.
+
+---
+
 YOLOE with a fixed 32-class Mongolian obstacle vocabulary: validate, then export
 for onnxruntime-web.
 
@@ -34,6 +50,29 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 DEFAULT_CLASSES = REPO / "model" / "classes.txt"
 DEFAULT_MODEL = "yoloe-11s-seg.pt"
+
+# SIZE, and where it does NOT come from.
+#
+# Cutting the vocabulary (60 classes -> 21) barely touches the file. The class
+# count only reaches the final 1x1 conv of each detection scale plus the baked
+# text-embedding matrix -- tens of kilobytes out of ~37 MB. Everything else is
+# backbone and neck. Curating classes buys fewer false alarms and a smaller
+# startup audio set; it does not buy a smaller download, and it is worth being
+# clear about that before someone cuts a useful hazard expecting megabytes.
+#
+# What actually moves the number, in order of how much it costs to try:
+#
+#   - Nothing. First load is the only slow one; lib/vision.worker.ts already
+#     caches the bytes in Cache Storage, so every later start is a disk read.
+#   - yoloe-26n-seg.pt (4.8M params vs this file's ~9.3M) is roughly half the
+#     size, and is the only YOLOE checkpoint smaller than 11s -- there is no
+#     yoloe-11n. It needs export(end2end=False): YOLO26 defaults to an
+#     end-to-end head that emits [1, 300, 6] already-decoded boxes, which is
+#     NOT what decode() in the worker parses. Verify the export shape is
+#     [1, 4 + nc, 8400] before shipping it.
+#   - INT8 quantisation is ~4x smaller again, and is the one option that helps
+#     the wasm fallback most and WebGPU least. fp16 is NOT an option here: see
+#     export_onnx() below, the wasm path has no fp16 kernels.
 
 # The worker letterboxes to 640 and hardcodes it; changing this means changing
 # INPUT_SIZE in lib/vision.worker.ts too.

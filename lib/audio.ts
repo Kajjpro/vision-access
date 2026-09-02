@@ -7,14 +7,33 @@
  * requires every buffer decoded at startup, never at playback time — a warning
  * that has to decode before it speaks is a warning that arrives late.
  *
- * The context is created lazily because it MUST be constructed inside a user
- * gesture or iOS leaves it suspended forever. Call `audioContext()` from a tap
- * handler, never from a render or an effect.
+ * The context is created lazily and MAY be constructed before any gesture (the
+ * menu does, at mount, so every clip decodes in the background) — on iOS it
+ * simply starts SUSPENDED. What must happen inside a user gesture is the
+ * RESUME: the first tap must call `audioContext()` again (it resumes), or iOS
+ * leaves the app mute forever. A call from an effect creates or keeps the
+ * instance; a call from a tap handler is what unlocks playback.
  */
 import { PHRASES } from "./phrases";
 
 const AUDIO_DIR = "/audio";
 const AUDIO_EXT = ".wav";
+
+/**
+ * A stuck fetch must not hang every future tap forever. Generous on purpose:
+ * a free `trycloudflare.com` dev tunnel has been observed taking 2-7s for a
+ * single small clip in isolation, and the first load fetches every phrase at
+ * once — a tight timeout would turn "slow tunnel" into "missing words".
+ */
+const CLIP_FETCH_TIMEOUT_MS = 25_000;
+
+function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const limit = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`timed out after ${Math.round(ms / 1000)}s`)), ms);
+  });
+  return Promise.race([work, limit]).finally(() => clearTimeout(timer)) as Promise<T>;
+}
 
 let ctx: AudioContext | null = null;
 const buffers = new Map<string, AudioBuffer>();
@@ -30,8 +49,10 @@ interface NavigatorWithAudioSession extends Navigator {
 }
 
 /**
- * The shared context, created on first call. MUST be called from inside a user
- * gesture; every later call returns the same instance.
+ * The shared context, created on first call — possibly before any gesture, in
+ * which case iOS starts it suspended. Every call also resumes it, so the call
+ * from a tap handler is what unlocks playback; earlier calls (from an effect
+ * kicking off background decode) just create and keep the suspended instance.
  */
 export function audioContext(): AudioContext {
   if (!ctx) {
@@ -66,29 +87,97 @@ export function loadedCount(): number {
 export async function loadAllClips(
   onProgress?: (loaded: number, total: number) => void,
 ): Promise<{ ok: string[]; failed: string[] }> {
+  return loadClips(undefined, onProgress);
+}
+
+/**
+ * Loads a SUBSET, or everything when `ids` is omitted.
+ *
+ * The subset form exists because decoding every clip is ~8 MB of WAV, and on a
+ * phone that is many seconds during which the app cannot say a word —
+ * indistinguishable, to someone who cannot see it, from an app that is broken.
+ * Screens load the few clips they need to speak first, then the rest behind.
+ */
+export async function loadClips(
+  ids?: string[],
+  onProgress?: (loaded: number, total: number) => void,
+): Promise<{ ok: string[]; failed: string[] }> {
   const context = audioContext();
   const ok: string[] = [];
   const failed: string[] = [];
+  const wanted = ids ? PHRASES.filter((p) => ids.includes(p.id)) : PHRASES;
 
   await Promise.all(
-    PHRASES.map(async (phrase) => {
+    wanted.map(async (phrase) => {
       if (buffers.has(phrase.id)) {
         ok.push(phrase.id);
-        onProgress?.(ok.length, PHRASES.length);
+        onProgress?.(ok.length, wanted.length);
         return;
       }
       try {
-        const res = await fetch(`${AUDIO_DIR}/${phrase.id}${AUDIO_EXT}`);
+        const res = await withTimeout(fetch(`${AUDIO_DIR}/${phrase.id}${AUDIO_EXT}`), CLIP_FETCH_TIMEOUT_MS);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         buffers.set(phrase.id, await context.decodeAudioData(await res.arrayBuffer()));
         ok.push(phrase.id);
       } catch {
         failed.push(phrase.id);
       }
-      onProgress?.(ok.length, PHRASES.length);
+      onProgress?.(ok.length, wanted.length);
     }),
   );
 
+  return { ok, failed };
+}
+
+/**
+ * Loads transit clips (stop and route names) into the SAME buffer map.
+ *
+ * These live in public/audio/transit as Opus with an AAC twin, separate from
+ * the WAV UI clips, because there are ~900 of them and size matters. Sharing
+ * the buffer map means playSequence can interleave a stop name with fixed
+ * phrases without knowing where any of them came from.
+ *
+ * Format is chosen per device: Safari — every iOS browser — cannot be relied on
+ * to decode Ogg Opus, and a stop name that fails to decode is announced as
+ * silence, which a rider reads as "not yet".
+ */
+let transitManifest: Record<string, { path: string; pathAac?: string }> | null = null;
+
+const preferAac = (() => {
+  if (typeof document === "undefined") return false;
+  return document.createElement("audio").canPlayType('audio/ogg; codecs="opus"') === "";
+})();
+
+export async function loadTransitClips(ids: string[]): Promise<{ ok: string[]; failed: string[] }> {
+  const context = audioContext();
+  const ok: string[] = [];
+  const failed: string[] = [];
+
+  if (!transitManifest) {
+    try {
+      transitManifest = await fetch("/audio/transit/manifest.json").then((r) => r.json());
+    } catch {
+      // No manifest yet (nothing rendered). Callers degrade to fixed phrases.
+      transitManifest = {};
+    }
+  }
+
+  await Promise.all(
+    ids.map(async (id) => {
+      if (buffers.has(id)) { ok.push(id); return; }
+      const entry = transitManifest![id];
+      if (!entry) { failed.push(id); return; }
+      try {
+        const url = preferAac && entry.pathAac ? entry.pathAac : entry.path;
+        const res = await withTimeout(fetch(url), CLIP_FETCH_TIMEOUT_MS);
+        if (!res.ok) throw new Error(String(res.status));
+        buffers.set(id, await context.decodeAudioData(await res.arrayBuffer()));
+        ok.push(id);
+      } catch {
+        failed.push(id);
+      }
+    }),
+  );
   return { ok, failed };
 }
 
@@ -185,6 +274,51 @@ export function playTone(pan = 0): number {
   osc.start(start);
   osc.stop(start + DURATION_S);
   duckProximity(start, DURATION_S);
+  return DURATION_S;
+}
+
+/**
+ * "Locking on" — the sound of the walk loop fixing its attention on an object.
+ *
+ * Deliberately built to be unmistakable for playTone(). That one is a hard
+ * square wave at a fixed 880 Hz and a third of full volume, and it means STOP.
+ * This is a soft sine that GLIDES upward at a third of that loudness, and it
+ * means "I have noticed something and I am watching it". Confusing the two
+ * would be the worst possible outcome, so they share no property: waveform,
+ * pitch contour and level all differ.
+ *
+ * Rising, because acquiring a target is an opening event — a falling sweep
+ * reads as something being lost or shutting down.
+ *
+ * This is not speech and does not touch the one-announcement-per-1.5s budget:
+ * it is 110 ms of texture that tells a user who cannot see the screen that the
+ * detector is alive and has something in view, which is otherwise only
+ * knowable when a warning finally fires.
+ *
+ * Not ducked, unlike the warning path — at this level it sits under the
+ * proximity tone rather than fighting it.
+ */
+export function playFocus(pan = 0): number {
+  const context = audioContext();
+  const DURATION_S = 0.11;
+  const start = context.currentTime;
+
+  const osc = context.createOscillator();
+  const gain = context.createGain();
+
+  osc.type = "sine";
+  osc.frequency.setValueAtTime(900, start);
+  osc.frequency.exponentialRampToValueAtTime(1800, start + DURATION_S);
+
+  // Soft attack, exponential tail. exponentialRamp cannot reach 0, hence the
+  // small floor — ramping to a true zero throws.
+  gain.gain.setValueAtTime(0, start);
+  gain.gain.linearRampToValueAtTime(0.12, start + 0.015);
+  gain.gain.exponentialRampToValueAtTime(0.0001, start + DURATION_S);
+
+  osc.connect(gain).connect(panNode(context, pan));
+  osc.start(start);
+  osc.stop(start + DURATION_S);
   return DURATION_S;
 }
 

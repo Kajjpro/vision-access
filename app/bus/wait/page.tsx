@@ -8,7 +8,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import type { AudioManifest, Route, RouteStops, Stop, StopRoutes } from "@/lib/transit/types";
+import type { Route, RouteStops, Stop, StopRoutes } from "@/lib/transit/types";
 import { WaitScreen } from "./WaitScreen";
 
 export const metadata = { title: "Автобус хүлээх" };
@@ -23,21 +23,7 @@ export default function BusWaitPage() {
   const stopRoutes = readJson<StopRoutes>("public/transit/stop-routes.json");
   const routeStops = readJson<RouteStops>("public/transit/route-stops.json");
 
-  let manifest: AudioManifest = {};
-  try {
-    manifest = readJson<AudioManifest>("public/audio/transit/manifest.json");
-  } catch {
-    // Pilot render only covers four routes so far. The screen must still work
-    // and must say so rather than going quiet.
-  }
-
-  return (
-    <WaitScreen
-      stops={stops}
-      routes={routes}
-      stopRoutes={stopRoutes}
-      routeStops={routeStops}
-      manifest={manifest}
-    />
-  );
+  // The screen speaks through the shared WAV pipeline (lib/audio.ts), which
+  // iOS decodes natively — no manifest needed here.
+  return <WaitScreen stops={stops} routes={routes} stopRoutes={stopRoutes} routeStops={routeStops} />;
 }

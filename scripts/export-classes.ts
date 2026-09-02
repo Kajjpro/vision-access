@@ -39,7 +39,6 @@ const OUT = resolve(process.cwd(), "model/classes.txt");
 const PROMPT_OVERRIDES: Record<string, string> = {
   // Polysemy: pin these to the street-level sense.
   hole: "pothole in the road",
-  puddle: "puddle of water on the ground",
   ice: "patch of ice on the ground",
   rock: "rock on the ground",
   // "curb / railing" is two prompts wearing one coat. Curb is the tripping
@@ -47,11 +46,15 @@ const PROMPT_OVERRIDES: Record<string, string> = {
   curb: "curb",
   // Disambiguate from a generic post.
   pole: "utility pole",
-  sign: "street sign",
-  // Mongolian street sense: a pushed/pulled handcart, not a shopping trolley.
-  cart: "handcart",
   // Distinguishable from the generic gloss, which drifts toward furniture.
   stairs: "staircase",
+
+  // Overhead hazards, and the two prompts here that most need pinning: bare
+  // "scaffolding" drifts toward interior shelving, and a bare "cable" embeds
+  // as the object itself rather than one strung across a walkway at head
+  // height — which is the only reason this class exists.
+  scaffolding: "construction scaffolding",
+  cable: "low hanging cable",
 };
 
 const objects = PHRASES.filter((p) => p.kind === "object");

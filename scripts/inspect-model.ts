@@ -5,15 +5,16 @@
  *
  *   npx tsx scripts/inspect-model.ts [path-to.onnx]
  *
- * Defaults to public/models/yolo-world.onnx. Runs on CPU via onnxruntime-node —
- * nothing here touches the browser build.
+ * Defaults to the model the app actually ships. Runs on CPU via
+ * onnxruntime-node — nothing here touches the browser build.
  */
 import { existsSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 
 import * as ort from "onnxruntime-node";
 
-const DEFAULT_MODEL = "public/models/yolo-world.onnx";
+/** Keep in step with MODEL_URL in lib/vision.worker.ts. */
+const DEFAULT_MODEL = "public/models/yolo11s.onnx";
 
 const modelPath = resolve(process.cwd(), process.argv[2] ?? DEFAULT_MODEL);
 
