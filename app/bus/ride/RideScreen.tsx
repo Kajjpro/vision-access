@@ -147,6 +147,47 @@ export function RideScreen({
     setLog((l) => [`${new Date().toLocaleTimeString()} ${line}`, ...l].slice(0, 60));
   }, []);
 
+  /** AudioContext.state, or "none" before the first gesture has built one. */
+  const audioState = useCallback(() => ctxRef.current?.state ?? "none", []);
+
+  /**
+   * EVERY announcement goes through here, so nothing can be spoken — or lost —
+   * without the trace knowing.
+   *
+   * The case this exists for is the one neither clock sees: the page is
+   * running, fixes are arriving, the count is correct, the announcement is
+   * built and queued — and the AudioContext is suspended, so it plays into
+   * nothing. The rider hears the silence of a working journey between stops.
+   * What would have been said is captured at the moment it is lost, because it
+   * cannot be reconstructed afterwards.
+   */
+  const enqueue = useCallback((a: Announcement) => {
+    const state = audioState();
+    if (state !== "running") {
+      recorderRef.current.silentPush(a.keys, a.label ?? "", state);
+      note(`SILENT (audio ${state}): ${a.label ?? a.keys.join(" ")}`);
+    }
+    queueRef.current?.push(a);
+  }, [audioState, note]);
+
+  /**
+   * Every vibrate call, with what the platform said about it.
+   *
+   * `navigator.vibrate` returns a boolean, and is absent entirely on some
+   * platforms. Recording the return value per call is how the dry run answers
+   * whether a haptic channel exists on THIS device — which decides whether §5
+   * parallel channels is satisfiable at all when audio is dead.
+   */
+  const buzz = useCallback((pattern: number[]) => {
+    if (typeof navigator.vibrate !== "function") {
+      recorderRef.current.haptic(pattern, undefined);
+      return;
+    }
+    let accepted = false;
+    try { accepted = navigator.vibrate(pattern); } catch { accepted = false; }
+    recorderRef.current.haptic(pattern, accepted);
+  }, []);
+
   /**
    * Hands an announcement to the queue WITHOUT pre-filtering unrendered clips.
    *
@@ -168,7 +209,7 @@ export function RideScreen({
     const wanted = keys.filter((k): k is string => Boolean(k));
     if (!wanted.length) return;
     const { ttlMs, ...rest } = extra;
-    queueRef.current?.push({
+    enqueue({
       keys: wanted,
       priority,
       label,
@@ -182,7 +223,7 @@ export function RideScreen({
        */
       expiresAt: Date.now() + (ttlMs ?? (priority === "critical" ? TTL.IMMEDIATE : TTL.ROUTINE)),
     });
-  }, []);
+  }, [enqueue]);
 
   // ---------------------------------------------------------- handoff
 
@@ -240,6 +281,16 @@ export function RideScreen({
         (navigator as unknown as { audioSession: { type: string } }).audioSession.type = "playback";
       }
       ctxRef.current = new AudioContext();
+      /**
+       * The transition log for the third failure mode. A context that goes
+       * suspended in a pocket and cannot be resumed without a gesture is the
+       * difference between a journey that speaks and one that only appears to.
+       */
+      ctxRef.current.addEventListener("statechange", () => {
+        const st = ctxRef.current?.state ?? "none";
+        note(`audio context -> ${st}`);
+        recorderRef.current.lifecycle("audiocontext", `${st} (visibility=${document.visibilityState})`);
+      });
     }
     if (ctxRef.current.state === "suspended") await ctxRef.current.resume();
     if (!queueRef.current) {
@@ -253,7 +304,9 @@ export function RideScreen({
       const ctx = ctxRef.current!;
       const queue = new AudioQueue(player, {
         earcons: createEarconPlayer(() => ctx),
-        vibrate: (pattern) => navigator.vibrate?.(pattern),
+        // Through `buzz`, not navigator directly, so queue-driven haptics are
+        // recorded with the platform's verdict like every other call.
+        vibrate: buzz,
       });
       queue.on((e: QueueEvent) => {
         if (e.type === "missing") { note(`NO CLIP: ${e.keys.join(", ")}`); recorderRef.current.missing(e.keys); }
@@ -272,7 +325,7 @@ export function RideScreen({
       if (failed.length) note(`${failed.length} clips missing`);
     }
     return queueRef.current;
-  }, [manifest, note]);
+  }, [buzz, manifest, note]);
 
   // ------------------------------------------------------- wake lock
 
@@ -381,10 +434,10 @@ export function RideScreen({
   useEffect(() => {
     if (!recordingActive) return;
     const timer = setInterval(() => {
-      recorderRef.current.heartbeat(document.visibilityState === "visible");
+      recorderRef.current.heartbeat(document.visibilityState === "visible", audioState());
     }, 5_000);
     return () => clearInterval(timer);
-  }, [recordingActive]);
+  }, [audioState, recordingActive]);
 
   // ----------------------------------------------------------- events
 
@@ -472,8 +525,8 @@ export function RideScreen({
 
       if (state.confidence === "none" && !downgradeAnnouncedRef.current) {
         downgradeAnnouncedRef.current = true;
-        queueRef.current?.push(confidenceLost(now));
-        navigator.vibrate?.([200, 100, 200]);
+        enqueue(confidenceLost(now));
+        buzz([200, 100, 200]);
         note("confidence lost — announced once");
         return;
       }
@@ -495,15 +548,15 @@ export function RideScreen({
         has,
       );
       if (announcement) {
-        queueRef.current?.push(announcement);
+        enqueue(announcement);
         lastSpokenRef.current = remaining;
         recorderRef.current.say(remaining, announcement.keys, announcement.label ?? "");
         const v = vibrationFor(remaining);
-        if (v) navigator.vibrate?.(v);
+        if (v) buzz(v);
         note(`say: ${announcement.label ?? announcement.keys.join(" ")}`);
       }
     },
-    [has, note, sequence],
+    [buzz, enqueue, has, note, sequence],
   );
 
   // ------------------------------------------------------------ start
@@ -562,7 +615,7 @@ export function RideScreen({
           const p2 = createEarconPlayer(() => ctxRef.current!);
           void p2.play("alert", new AbortController().signal).catch(() => {});
         } catch { /* no context yet */ }
-        navigator.vibrate?.([60, 80, 60]);
+        buzz([60, 80, 60]);
       }
 
       note(`tracking to ${dest}: ${seq[dest]?.name}`);
@@ -644,7 +697,7 @@ export function RideScreen({
         { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 },
       );
     },
-    [acquireWakeLock, ensureAudio, handleEngineEvents, handoff, has, nearestIsOnVariant, note, push, sequence, speakLadder],
+    [acquireWakeLock, buzz, ensureAudio, handleEngineEvents, handoff, has, nearestIsOnVariant, note, push, sequence, speakLadder],
   );
 
   /**
@@ -666,11 +719,11 @@ export function RideScreen({
         handleEngineEvents(r.events);
         // The loss itself has to become audible; see speakLadder.
         speakLadder(r.state, destIndex, now);
-        if (r.state.confidence === "none") queueRef.current?.push(announceTrackingDegraded(now));
+        if (r.state.confidence === "none") enqueue(announceTrackingDegraded(now));
       }
     }, 10_000);
     return () => clearInterval(timer);
-  }, [destIndex, engine, handleEngineEvents, speakLadder]);
+  }, [destIndex, engine, enqueue, handleEngineEvents, speakLadder]);
 
   /**
    * First gesture: read the handoff, open audio, and start counting.
@@ -763,7 +816,7 @@ export function RideScreen({
 
     // Built in lib/transit/announce.ts, so the overshot-rider path is covered by
     // the suite rather than by inspection of a screen that has no tests.
-    queueRef.current?.push(
+    enqueue(
       announceStatus(
         {
           at, destination: target, remaining: left,
@@ -773,7 +826,7 @@ export function RideScreen({
         has,
       ),
     );
-  }, [destIndex, has, sequence]);
+  }, [destIndex, enqueue, has, sequence]);
 
   /**
    * Manual advance, clamped at the destination.

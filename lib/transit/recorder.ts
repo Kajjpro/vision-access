@@ -41,7 +41,25 @@ export type RecordedEvent =
   /** Something was said. `clips` is what the queue actually played, not what was asked for. */
   | { t: number; kind: "say"; remaining: number | null; keys: string[]; clips?: string[]; label: string }
   | { t: number; kind: "earcon"; id: string }
-  | { t: number; kind: "haptic"; pattern: number[] }
+  /**
+   * `accepted` is navigator.vibrate's own return value — false means the call
+   * was refused, and `undefined` means the API is absent entirely. Recorded per
+   * call because whether the haptic channel exists AT ALL on this device is the
+   * question that decides whether §5 parallel channels is satisfiable when
+   * audio is dead.
+   */
+  | { t: number; kind: "haptic"; pattern: number[]; accepted?: boolean }
+  /**
+   * An announcement that reached the queue while the AudioContext was suspended.
+   *
+   * THE THIRD FAILURE. The heartbeat separates a stalled page from stalled
+   * geolocation, but neither sees this one: the page runs, fixes arrive, the
+   * count is right, the announcement is built and queued — and plays into a
+   * context that cannot make sound. The rider hears the silence of a working
+   * journey between stops. It is not reconstructable afterwards, so what would
+   * have been said is captured here at the moment it was lost.
+   */
+  | { t: number; kind: "silent-push"; keys: string[]; label: string; audio: string }
   /** A clip the player did not have. The gap between asked-for and played. */
   | { t: number; kind: "missing"; keys: string[] }
   /**
@@ -64,7 +82,12 @@ export type RecordedEvent =
    * `lastFixAt` carried on each beat also gives staleness at every moment,
    * without logging an event per fix and tripling the file.
    */
-  | { t: number; kind: "heartbeat"; fixes: number; lastFixAt: number | null; visible: boolean }
+  | {
+      t: number; kind: "heartbeat"; fixes: number; lastFixAt: number | null;
+      visible: boolean;
+      /** AudioContext.state — "running" | "suspended" | "closed" | "none". */
+      audio: string;
+    }
   | { t: number; kind: "note"; text: string };
 
 export type BatterySample = { t: number; level: number; charging: boolean };
@@ -157,10 +180,11 @@ export type Recorder = {
   say(remaining: number | null, keys: string[], label: string): void;
   clips(keys: string[]): void;
   earcon(id: string): void;
-  haptic(pattern: number[]): void;
+  haptic(pattern: number[], accepted?: boolean): void;
   missing(keys: string[]): void;
+  silentPush(keys: string[], label: string, audio: string): void;
   lifecycle(event: string, detail?: string): void;
-  heartbeat(visible: boolean): void;
+  heartbeat(visible: boolean, audio: string): void;
   note(text: string): void;
   battery(level: number, charging: boolean): void;
   setRoute(route: Recording["route"]): void;
@@ -184,7 +208,8 @@ export function nullRecorder(): Recorder {
   return {
     active: false,
     fix() {}, engine() {}, say() {}, clips() {}, earcon() {}, haptic() {},
-    missing() {}, lifecycle() {}, heartbeat() {}, note() {}, battery() {}, setRoute() {}, flush() {},
+    missing() {}, silentPush() {}, lifecycle() {}, heartbeat() {}, note() {},
+    battery() {}, setRoute() {}, flush() {},
     snapshot: () => empty, stop: () => empty,
   };
 }
@@ -312,11 +337,18 @@ export function createRecorder(
       write();
     },
 
-    heartbeat(visible) {
+    heartbeat(visible, audio) {
       const last = data.trace.length ? data.trace[data.trace.length - 1].timestamp : null;
-      push({ t: now(), kind: "heartbeat", fixes: data.trace.length, lastFixAt: last, visible });
+      push({ t: now(), kind: "heartbeat", fixes: data.trace.length, lastFixAt: last, visible, audio });
     },
-    haptic(pattern) { push({ t: now(), kind: "haptic", pattern }); },
+    haptic(pattern, accepted) { push({ t: now(), kind: "haptic", pattern, accepted }); },
+
+    silentPush(keys, label, audio) {
+      push({ t: now(), kind: "silent-push", keys, label, audio });
+      // Written at once: this is evidence of something the rider did NOT hear,
+      // and if the page dies before the next interval it is gone for good.
+      write();
+    },
     missing(keys) { push({ t: now(), kind: "missing", keys }); },
     note(text) { push({ t: now(), kind: "note", text }); },
     battery(level, charging) { data.battery.push({ t: now(), level, charging }); maybeFlush(); },
