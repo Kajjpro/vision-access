@@ -10,9 +10,11 @@
     "lint": "eslint",
     "transit": "node --env-file-if-exists=.env.local scripts/build-transit-data.mjs",
     "transit:refresh": "node --env-file-if-exists=.env.local scripts/build-transit-data.mjs --refresh",
-    "test": "tsx --test lib/**/*.test.ts scripts/*.test.ts",
+    "test": "tsx --test lib/*.test.ts lib/**/*.test.ts scripts/*.test.ts",
     "audio:transit": "tsx scripts/generate-transit-audio.ts",
-    "audio:routes": "tsx scripts/generate-transit-audio.ts --stage=routes"
+    "audio:routes": "tsx scripts/generate-transit-audio.ts --stage=routes",
+    "money:refs": "tsx scripts/build-money-refs.ts",
+    "money:eval": "tsx scripts/eval-money.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.115.0",
@@ -24,8 +26,8 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
-    "@types/node": "^20",
-    "@types/react": "^19",
+    "@types/node": "20.19.43",
+    "@types/react": "19.2.18",
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.3.0",
@@ -34,6 +36,6 @@
     "sharp": "^0.35.3",
     "tailwindcss": "^4",
     "tsx": "^4.23.8",
-    "typescript": "^5"
+    "typescript": "5.9.3"
   }
 }

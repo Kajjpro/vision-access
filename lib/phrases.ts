@@ -23,44 +23,134 @@ export const PHRASES: Phrase[] = [
   // ---- Objects ----------------------------------------------------------
   // This order defines the model's class indices. See DETECTION_CLASSES, and
   // keep the Colab export's class list derived from it.
+  //
+  // WHAT THE MODEL CAN ACTUALLY SEE — measured, and the first thing to know.
+  //
+  // THIS LIST IS NO LONGER THE MODEL'S VOCABULARY. lib/coco.ts is. The
+  // detector was YOLOE with these 25 classes baked in as CLIP text embeddings,
+  // which made every class here look equally available. They were not:
+  //
+  //   bus 0.95   person 0.94   dog 0.49        <- all COCO-native
+  //   trash_can 0.14   tree 0.04   fence 0.03   door 0.02   pole <0.02
+  //
+  // The split was exact. Classes YOLO was TRAINED on detected strongly;
+  // classes that existed only as a text prompt sat at noise and never cleared
+  // the 0.30 threshold. That note used to end "needs a retrained model, not a
+  // tweak" — and that is what happened. The app now runs a stock COCO-80
+  // detector, so the twelve reachable ids are:
+  //
+  //   person, dog, cat, horse, cow, car, bus, truck, motorcycle, bicycle,
+  //   bench (also fed by COCO `chair`), table
+  //
+  // The other thirteen — pole, tree, wall, fence, door, stairs, trash_can,
+  // curb, scaffolding, cable, hole, ice, rock — are UNREACHABLE today. They
+  // are kept, with their wavs, for two reasons: an older export still cached
+  // on a phone names its classes with these ids and must keep working, and the
+  // moment a vocabulary containing them exists they cost nothing to re-enable.
+  //
+  // Adding a class here does NOT make the detector find it. The mapping in
+  // lib/coco.ts is what decides, and it can only map what COCO contains.
+  // Winning back a pole or a kerb is a data problem — an Objects365 or LVIS
+  // checkpoint, or hand-labelled UB street photos — not an entry in this list.
+  //
+  // CURATION POLICY — read before adding a class back.
+  //
+  // A class earns its place by being something that can injure this user, not
+  // by being something the camera can name. Three costs are paid per class,
+  // and only the first is obvious:
+  //
+  //   1. Another wav fetched before the app can speak at all. The startup set
+  //      is downloaded in full on a phone over mobile data.
+  //   2. Another channel in the ONNX head, and one more thing the detector can
+  //      be wrong about.
+  //   3. A share of the announcement budget. CLAUDE.md allows ONE spoken
+  //      warning per 1.5 seconds. Every class competes for that slot, so a
+  //      correctly-detected bird is not free — it is a car that went unsaid.
+  //
+  // (3) is why this list is short. The previous 60-entry vocabulary was a list
+  // of things findable on a street; this is a list of things worth interrupting
+  // someone for. When in doubt leave it out: CLAUDE.md is explicit that silence
+  // is the correct output under uncertainty, and a missing warning costs
+  // nothing next to a false one.
 
-  // People and animals
+  // People and animals. Street dogs are common in UB and do not step aside for
+  // someone who cannot make eye contact with them.
+  //
+  // `child` is deliberately gone: it is a second word for an identical warning,
+  // and person-vs-child is a distinction the user cannot act on differently.
+  // cat, bird, sheep, goat, horse and cow are gone because none of them can
+  // injure a pedestrian, and any one of them could spend the single
+  // announcement available per 1.5s that a car needed.
   { id: "person", mn: "Хүн", en: "person", kind: "object" },
-  { id: "child", mn: "Хүүхэд", en: "child", kind: "object" },
   { id: "dog", mn: "Нохой", en: "dog", kind: "object" },
+  // Restored after measurement. These were cut as "cannot injure a
+  // pedestrian", which is true and was the wrong test to apply alone: they are
+  // COCO-native, so they are among the few classes this model can actually
+  // FIND, and cutting them left the app with almost nothing to report but
+  // people. A cat underfoot is also a genuine trip hazard, and livestock on
+  // the road is an ordinary sight outside central UB.
   { id: "cat", mn: "Муур", en: "cat", kind: "object" },
   { id: "horse", mn: "Морь", en: "horse", kind: "object" },
   { id: "cow", mn: "Үхэр", en: "cow", kind: "object" },
-  { id: "bird", mn: "Шувуу", en: "bird", kind: "object" },
 
-  // Vehicles
+  // Vehicles. The only things on this list that can kill, so they are the last
+  // classes that would ever be cut.
+  //
+  // scooter, kick_scooter, cart, stroller and wheelchair are dropped: they are
+  // rarer, they are visually confusable with bicycle/motorcycle, and the
+  // warning a user acts on is the same either way — something is coming.
   { id: "car", mn: "Машин", en: "car", kind: "object" },
   { id: "bus", mn: "Автобус", en: "bus", kind: "object" },
   { id: "truck", mn: "Ачааны машин", en: "truck", kind: "object" },
   { id: "motorcycle", mn: "Мотоцикл", en: "motorcycle", kind: "object" },
   { id: "bicycle", mn: "Дугуй", en: "bicycle", kind: "object" },
-  { id: "scooter", mn: "Скутер", en: "scooter", kind: "object" },
-  { id: "cart", mn: "Тэрэг", en: "cart", kind: "object" },
 
-  // Street furniture and structures
+  // Street furniture and structures. Body-height collisions: a cane finds the
+  // base of a pole about a step before a shoulder finds the rest of it, and
+  // stairs are where a stumble becomes an injury.
+  //
+  // The long tail is gone — bollard, fire_hydrant, planter, kiosk, awning,
+  // bus_stop, barrier, boxes, luggage, dumpster, hedge, ladder, step, table,
+  // window, glass_door. Each was a plausible obstacle and a near-certain source
+  // of chatter, and `wall` already covers "a flat thing is in front of you".
+  //
+  // `sign` and `bridge` are dropped as too frequent and not collidable
+  // respectively. `traffic_light` is dropped on purpose and not for size:
+  // CLAUDE.md forbids this app from speaking to traffic signals at all, and
+  // naming one out loud invites precisely the reading — "it saw the light, so
+  // it must be telling me to cross" — that the rule exists to prevent.
   { id: "pole", mn: "Шон", en: "pole", kind: "object" },
   { id: "tree", mn: "Мод", en: "tree", kind: "object" },
   { id: "wall", mn: "Хана", en: "wall", kind: "object" },
   { id: "fence", mn: "Хашаа", en: "fence", kind: "object" },
   { id: "door", mn: "Хаалга", en: "door", kind: "object" },
-  { id: "window", mn: "Цонх", en: "window", kind: "object" },
   { id: "stairs", mn: "Шат", en: "stairs", kind: "object" },
   { id: "bench", mn: "Сандал", en: "bench", kind: "object" },
+  // Restored for the same reason as the animals above, and it earns its place
+  // twice over: COCO-native (so actually detectable), and the one class on
+  // this whole list that appears INDOORS, where the app is inevitably tested
+  // first. Waist height, hard edges, invisible to a cane sweeping below it.
   { id: "table", mn: "Ширээ", en: "table", kind: "object" },
   { id: "trash_can", mn: "Хогийн сав", en: "trash can", kind: "object" },
-  { id: "traffic_light", mn: "Гэрлэн дохио", en: "traffic light", kind: "object" },
-  { id: "sign", mn: "Тэмдэг", en: "sign", kind: "object" },
-  { id: "bridge", mn: "Гүүр", en: "bridge", kind: "object" },
   { id: "curb", mn: "Хашлага", en: "curb / railing", kind: "object" },
 
-  // Ground hazards
+  // Overhead hazards — above head height, no ground contact. See lib/path.ts
+  // isOverhead(): this is the case a white cane sweeps straight under.
+  // These two survive a cut aimed at everything non-essential precisely
+  // because they are the class of hazard the cane cannot report. `umbrella` is
+  // dropped: it is the one overhead object that is usually attached to a
+  // person who is already being detected.
+  { id: "scaffolding", mn: "Барилгын шат", en: "scaffolding", kind: "object" },
+  { id: "cable", mn: "Утас", en: "low-hanging cable", kind: "object" },
+
+  // Ground hazards. `hole` covers the open manhole case, which in UB is a real
+  // fall and not a theoretical one, so manhole is redundant rather than absent.
+  //
+  // `ice` stays where `puddle` and `snow_pile` go: standing water is a wet
+  // shoe, ice is a fractured wrist, and Mongolia is frozen for a third of the
+  // year. crosswalk, speed_bump and ramp are road MARKINGS — flat, unhittable,
+  // and describing them edges toward telling someone where to cross.
   { id: "hole", mn: "Нүх", en: "hole", kind: "object" },
-  { id: "puddle", mn: "Шалбааг", en: "puddle", kind: "object" },
   { id: "ice", mn: "Мөс", en: "ice", kind: "object" },
   { id: "rock", mn: "Чулуу", en: "rock", kind: "object" },
 
@@ -189,6 +279,85 @@ export const PHRASES: Phrase[] = [
   { id: "bus_is", mn: "автобус", en: "bus is", kind: "ui" },
   { id: "unclear", mn: "Тодорхойгүй", en: "unclear", kind: "ui" },
   { id: "try_again", mn: "Дахин оролдоно уу", en: "try again", kind: "ui" },
+
+  // ---- Money mode -------------------------------------------------------
+  // NOTES.md required these to be added WITH the denominations in
+  // lib/money/denominations.ts, so the spoken set and the recognisable set
+  // cannot drift apart. DENOMINATION_INFO.phraseId points at these ids and
+  // scripts/verify-pipeline.ts fails the build if one loses its wav.
+  //
+  // kind "ui", NOT "object" — DETECTION_CLASSES filters on "object" and its
+  // index IS the ONNX class id. An entry here as an object would renumber
+  // every obstacle class and silently mislabel every detection. A banknote is
+  // not a YOLO class in this app and cannot become one: see
+  // lib/money/denominations.ts for why it is matched rather than detected.
+  //
+  // Capitalised, because a denomination is the WHOLE announcement rather than
+  // a fragment following an object name — unlike the lowercase distance and
+  // `bus_is` clips that continue a sentence someone is already listening to.
+  //
+  // Attributive numeral forms ("нэг мянган төгрөг"), matching the m_N distance
+  // clips, because the numeral modifies төгрөг. The counting forms in the n_N
+  // digit clips ("нэг", "тав") are for reading route numbers digit by digit
+  // and would be wrong here.
+  { id: "money_100", mn: "Зуун төгрөг", en: "100 tögrög", kind: "ui" },
+  { id: "money_500", mn: "Таван зуун төгрөг", en: "500 tögrög", kind: "ui" },
+  { id: "money_1000", mn: "Нэг мянган төгрөг", en: "1000 tögrög", kind: "ui" },
+  { id: "money_5000", mn: "Таван мянган төгрөг", en: "5000 tögrög", kind: "ui" },
+  { id: "money_10000", mn: "Арван мянган төгрөг", en: "10000 tögrög", kind: "ui" },
+  { id: "money_20000", mn: "Хорин мянган төгрөг", en: "20000 tögrög", kind: "ui" },
+
+  // Operating the app, not describing the world. CLAUDE.md's "describe, never
+  // instruct" rule governs what the camera reports — it forbids telling
+  // someone whether to cross a road, not telling them where to hold a note.
+  { id: "money_prompt", mn: "Мөнгөө камерт харуулна уу", en: "show the money to the camera", kind: "ui" },
+  { id: "money_reading", mn: "Уншиж байна", en: "reading", kind: "ui" },
+
+  // ---- Gesture UI and first-run tutorial -------------------------------
+  // Rendered by scripts/generate-audio.ts as WAV, not Opus: these are the
+  // first sounds a new user ever hears, and iOS Safari decodes WAV natively
+  // while its Ogg Opus support is unreliable. Short and few, so the bytes
+  // are not worth a compatibility risk.
+
+  { id: "ui_where_am_i", mn: "Та одоо энд байна:", en: "You are here:", kind: "ui" },
+  { id: "ui_list_wrapped", mn: "Жагсаалтын эхэнд буцлаа.", en: "Back to the start of the list.", kind: "ui" },
+  { id: "ui_no_options", mn: "Сонголт алга байна.", en: "There are no options.", kind: "ui" },
+  { id: "ui_screen_home", mn: "Үндсэн цэс", en: "Main menu", kind: "ui" },
+  { id: "ui_screen_wait", mn: "Автобус хүлээх", en: "Waiting for a bus", kind: "ui" },
+  { id: "ui_screen_ride", mn: "Автобусанд явж байна", en: "Riding the bus", kind: "ui" },
+  { id: "ui_screen_destination", mn: "Хаана буух вэ", en: "Where are you getting off", kind: "ui" },
+  { id: "ui_list_recent_heading", mn: "Сүүлд явсан", en: "Recently travelled", kind: "ui" },
+  { id: "ui_list_frequent_heading", mn: "Байнга явдаг", en: "Frequently travelled", kind: "ui" },
+  { id: "ui_list_all_stops_heading", mn: "Бүх буудал", en: "All stops", kind: "ui" },
+  { id: "ui_list_position_joiner", mn: "дахь", en: "-th", kind: "ui" },
+  { id: "ui_list_position_of", mn: "-оос", en: "of", kind: "ui" },
+  { id: "ui_list_jumped_five", mn: "5-р буудал", en: "5 stops on", kind: "ui" },
+  { id: "ui_list_stops_after", mn: "буудлын дараа", en: "stops later", kind: "ui" },
+  { id: "ui_wait_find_stop", mn: "Буудлаа олох", en: "Find my stop", kind: "ui" },
+  { id: "ui_wait_locating", mn: "Байршил тодорхойлж байна", en: "Finding your location", kind: "ui" },
+  { id: "ui_wait_confirm_stop", mn: "Тийм, энэ буудал", en: "Yes, this stop", kind: "ui" },
+  { id: "ui_wait_other_stop", mn: "Өөр буудал", en: "A different stop", kind: "ui" },
+  { id: "ui_wait_which_route", mn: "Аль чиглэлээр явах вэ?", en: "Which route are you taking?", kind: "ui" },
+  { id: "ui_wait_time_unknown", mn: "хугацаа тодорхойгүй", en: "time unknown", kind: "ui" },
+  { id: "ui_voice_listening", mn: "Сонсож байна", en: "Listening", kind: "ui" },
+  { id: "ui_voice_confirm_suffix", mn: "руу явах уу?", en: "… are you going to?", kind: "ui" },
+  { id: "ui_voice_not_understood", mn: "Ойлгосонгүй. Дахин оролдоно уу.", en: "I did not understand. Please try again.", kind: "ui" },
+  { id: "ui_voice_unavailable", mn: "Дуу хоолойгоор оруулах боломжгүй байна", en: "Voice input is unavailable", kind: "ui" },
+  { id: "ui_pos_top_left", mn: "зүүн дээд", en: "top left", kind: "ui" },
+  { id: "ui_pos_top_right", mn: "баруун дээд", en: "top right", kind: "ui" },
+  { id: "ui_pos_bottom_left", mn: "зүүн доод", en: "bottom left", kind: "ui" },
+  { id: "ui_pos_bottom_right", mn: "баруун доод", en: "bottom right", kind: "ui" },
+  { id: "ui_ride_manual_advance", mn: "Нэг буудал өнгөрлөө", en: "One stop has passed", kind: "ui" },
+  { id: "ui_ride_finish", mn: "Дуусгах", en: "Finish", kind: "ui" },
+  { id: "ui_welcome", mn: "Харааны Хандалт. Дээш доош шударч сонголтоо сонсоно уу. Хоёр удаа товшиж сонгоно уу.", en: "Vision Access. Swipe up or down to hear the options. Double-tap to choose.", kind: "ui" },
+  { id: "ui_back", mn: "Буцлаа", en: "Went back", kind: "ui" },
+  { id: "ui_voice_prompt", mn: "Хаашаа явах вэ? Буудлын нэрээ хэлнэ үү.", en: "Where are you going? Say the name of the stop.", kind: "ui" },
+  { id: "ui_voice_did_you_say", mn: "Та ингэж хэлсэн үү:", en: "Did you say:", kind: "ui" },
+  { id: "ui_voice_confirm_hint", mn: "Тийм бол хоёр удаа товшино уу. Үгүй бол дээш шудрана уу.", en: "If yes, double-tap. If no, swipe up.", kind: "ui" },
+  { id: "ui_voice_no_match", mn: "Тийм нэртэй буудал олдсонгүй.", en: "No stop found with that name.", kind: "ui" },
+  { id: "ui_wait_searching", mn: "Буудлыг хайж байна", en: "Looking for your stop", kind: "ui" },
+  { id: "ui_wait_say_destination", mn: "Хаашаа явахаа хэлэх", en: "Say where you are going", kind: "ui" },
+  { id: "ui_wait_browse_routes", mn: "Чиглэлүүдийг сонсох", en: "Hear the routes", kind: "ui" },
 ];
 
 /** Model class order. An index into this IS the classId in the ONNX export. */

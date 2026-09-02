@@ -27,12 +27,13 @@ import {
   estimateObjectDistance,
 } from "../lib/distance";
 import type { CameraPose } from "../lib/distance";
-import { DETECTION_CLASSES, PHRASES } from "../lib/phrases";
+import { COCO_CLASSES, phraseIdFor } from "../lib/coco";
+import { PHRASES } from "../lib/phrases";
 
 // Must match lib/vision.worker.ts exactly, or this proves nothing about the app.
-const MODEL = "public/models/yoloe-11s.onnx";
+const MODEL = "public/models/yolo11s.onnx";
 const INPUT_SIZE = 640;
-const CONFIDENCE_THRESHOLD = 0.4;
+const CONFIDENCE_THRESHOLD = 0.3;
 const IOU_THRESHOLD = 0.45;
 const PAD_VALUE = 114;
 const BOX_CHANNELS = 4;
@@ -135,6 +136,12 @@ async function detect(session: ort.InferenceSession, imagePath: string) {
     }
     if (bestClass < 0 || bestScore <= CONFIDENCE_THRESHOLD) continue;
 
+    // The vocabulary seam, exactly as lib/vision.worker.ts applies it: the
+    // model speaks COCO, the app speaks phrase ids, and a class with no mapping
+    // is dropped rather than announced namelessly.
+    const phraseId = phraseIdFor(COCO_CLASSES[bestClass] ?? "");
+    if (phraseId === null) continue;
+
     const cx = at(0, a);
     const cy = at(1, a);
     const w = at(2, a);
@@ -147,7 +154,7 @@ async function detect(session: ort.InferenceSession, imagePath: string) {
 
     candidates.push({
       classId: bestClass,
-      className: DETECTION_CLASSES[bestClass] ?? "",
+      className: phraseId,
       score: bestScore,
       x: x0,
       y: y0,
@@ -176,6 +183,10 @@ function checkCloseRange() {
     frameHeight: 480,
     pitchDeg: DEFAULT_PITCH_DEG,
     cameraHeightM: CAMERA_HEIGHT_M,
+    // DEFAULT_PITCH_DEG is the fallback, not a reading, so this must say so:
+    // it is what makes estimateObjectDistance() use the pitch-independent
+    // size prior instead of a ground plane it cannot trust.
+    pitchMeasured: false,
   };
 
   // A wall filling the frame. No height prior exists for `wall`, by design.
@@ -206,10 +217,29 @@ function checkCloseRange() {
     `${wallEstimate.metres} vs ${farEstimate.metres.toFixed(1)}`,
   );
 
-  // A base sitting on the frame's bottom edge is clipped, so unreliable.
+  // A base near the frame's bottom edge makes the GROUND estimate suspect —
+  // the true contact point may be below the frame, which reads as too far.
+  //
+  // That alone no longer condemns the whole estimate. It used to, and the cost
+  // was severe: this box is a person whose feet are 5px clear of the edge, so
+  // they are fully visible and the height prior measures them perfectly well.
+  // Marking it unreliable made announcementFor() return SILENT, so a visible
+  // person four metres ahead produced no warning at all. The rule is now
+  // narrower — the ground vote is dropped, and reliability follows whether any
+  // estimator that does NOT read the bottom edge survived.
   const clipped = { x: 250, y: 300, w: 100, h: 175 };
-  const clippedEstimate = estimateObjectDistance(clipped, "person", pose);
-  check(!clippedEstimate.reliable, "base within 5% of the frame bottom is unreliable");
+  check(
+    estimateObjectDistance(clipped, "person", pose).reliable,
+    "a clipped base is carried by the size priors rather than silencing the warning",
+  );
+
+  // With no size prior at all there is nothing to carry it, and the guard still
+  // applies: `pole` has neither a height nor a width prior by design.
+  const clippedNoPrior = { x: 250, y: 300, w: 30, h: 175 };
+  check(
+    !estimateObjectDistance(clippedNoPrior, "pole", pose).reliable,
+    "a clipped base with no size prior stays unreliable",
+  );
 
   // Above the horizon there is no ground intersection at all.
   const sky = { x: 300, y: 5, w: 40, h: 20 };
@@ -255,9 +285,9 @@ async function main() {
   check(session.inputMetadata.length === 1, "model takes exactly one input (no text encoder)");
   check(session.outputMetadata.length === 1, "model has one output (segmentation stripped)");
   check(
-    channels === BOX_CHANNELS + DETECTION_CLASSES.length,
-    "output0 channels match DETECTION_CLASSES",
-    `${channels} vs 4+${DETECTION_CLASSES.length}`,
+    channels === BOX_CHANNELS + COCO_CLASSES.length,
+    "output0 channels match COCO_CLASSES",
+    `${channels} vs 4+${COCO_CLASSES.length}`,
   );
 
   // Every name the app can speak must exist as a decoded clip, or the warning is
@@ -273,6 +303,7 @@ async function main() {
       frameHeight: srcH,
       pitchDeg: DEFAULT_PITCH_DEG,
       cameraHeightM: CAMERA_HEIGHT_M,
+      pitchMeasured: false,
     };
 
     console.log(`  ${srcW}x${srcH}, ${boxes.length} objects after NMS, ${inferenceMs.toFixed(0)}ms\n`);
