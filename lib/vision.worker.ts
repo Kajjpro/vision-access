@@ -1,30 +1,82 @@
 /**
- * YOLOE inference, off the main thread.
+ * COCO object detection, off the main thread.
  *
- * The model is a 32-class detector exported by model/yoloe_export.py, which
- * bakes the class vocabulary in at export time via set_classes(). Nothing
- * open-vocabulary survives into the browser: there is no text encoder here and
- * no second input, just images -> output0. Re-exporting is how the class list
- * changes; see model/classes.txt, generated from phrases.ts.
+ * The model is a stock COCO-80 YOLO11 detector exported by
+ * model/coco_export.py: one image input, one output0, no text encoder and
+ * nothing open-vocabulary. lib/coco.ts translates its 80 class names into the
+ * dozen phrase ids this app speaks, so everything downstream of this file sees
+ * only the app's own vocabulary.
  *
  * Load as a module worker — onnxruntime-web is ESM:
  *   new Worker(new URL("../lib/vision.worker.ts", import.meta.url), { type: "module" })
  *
  * Protocol
  *   in   { type: "frame", bitmap: ImageBitmap }   transferred, closed here
- *   out  { type: "ready" }                        model loaded, frames accepted
- *   out  { type: "detections", boxes, inferenceMs }
+ *   in   { type: "configure", ... }               benchmark knobs
+ *   out  { type: "ready", backend, threads, isolated }
+ *   out  { type: "detections", boxes, inferenceMs, preprocessMs, skipped, motion }
  *   out  { type: "error", message }               nothing is ever silent
  *
  * Frames arriving mid-inference are DROPPED, never queued: a queue turns a slow
  * device into an ever-growing lag between what the camera sees and what the user
  * hears.
+ *
+ * The network is also SKIPPED entirely when the scene has not changed — see
+ * MOTION GATING below. That is the largest battery saving available here, and
+ * the only one that costs no accuracy.
  */
 import * as ort from "onnxruntime-web";
 
+import { COCO_CLASSES, phraseIdFor } from "./coco";
+import {
+  MAX_SKIP_MS,
+  MOTION_THRESHOLD,
+  createSignature,
+  measureFrame,
+  motionBetween,
+  shouldSkipInference,
+} from "./motion";
 import { DETECTION_CLASSES } from "./phrases";
 
-const MODEL_URL = "/models/yoloe-11s.onnx";
+/**
+ * yolo11s, COCO-80, fp32. 36.3 MB.
+ *
+ * A SUPERVISED detector, and that is the whole point of it — see lib/coco.ts.
+ * The previous file here was YOLOE with a 32-class Mongolian obstacle
+ * vocabulary baked in as CLIP text embeddings, and roughly half of those
+ * classes scored at noise (0.02-0.14) because the backbone had never seen a
+ * labelled box for them. This is a like-for-like swap on download size — it is
+ * a megabyte SMALLER than the export it replaced — that trades thirteen
+ * classes which never fired for real training on the twelve that do.
+ *
+ * fp32, and INT8 IS NOT AN OPTION HERE. Measured, twice, on the YOLOE export
+ * that preceded this one; the architecture and the failure mode are the same,
+ * so the conclusion carries, but the megabyte figures below are that file's.
+ * Re-measure before trusting them for this one.
+ *
+ * INT8 dynamic quantisation took that file from 39.1 MB to 10.2 MB and was
+ * ~34% faster on CPU, which over a slow link is the difference between loading
+ * and timing out. On a single bright test photo it looked free: same five
+ * detections, box IoU 0.95-0.99, distance error 0.2%.
+ *
+ * It is not free. Across 36 cases (3 images x 4 scales x 3 brightness levels,
+ * probing the small-and-dim regime a walking user actually lives in) INT8 lost
+ * 31% of the detections fp32 made — 26 of 84 — and EVERY SINGLE ONE OF THEM
+ * WAS A PERSON, including one fp32 scored at 0.90. The losses concentrate
+ * exactly where they hurt: distant, low light. Ulaanbaatar is dark from
+ * mid-afternoon for much of the year.
+ *
+ * That is not the "silence under uncertainty" CLAUDE.md asks for. It is a
+ * detector that is reliably blind to people in the conditions this app exists
+ * for, while sounding exactly as confident as a working one. A 39 MB download
+ * that takes minutes is a bad experience; missing a third of the pedestrians
+ * in front of someone who cannot see them is a different category of thing.
+ *
+ * If the download size has to come down, the next thing to measure is fp16
+ * (~18.6 MB, and unlike INT8 it keeps a WebGPU path) — run the same recall
+ * comparison before shipping it, not just a single well-lit frame.
+ */
+const MODEL_URL = "/models/yolo11s.onnx";
 const INPUT_SIZE = 640;
 
 /**
@@ -35,20 +87,97 @@ const INPUT_SIZE = 640;
 const LEGACY_CLASSES = ["tree", "pole", "car", "person", "dog"];
 
 /**
+ * The 32-class YOLOE vocabulary, in ITS original order.
+ *
+ * No longer the shipping model — see MODEL_URL — but a phone that has
+ * yoloe-11s.onnx sitting in Cache Storage from a previous visit will keep
+ * decoding it until the bumped MODEL_CACHE evicts it. Without this list those
+ * detections would go nameless mid-rollout: distance only, on a model that was
+ * naming things correctly a minute earlier.
+ */
+const LEGACY_32_CLASSES = [
+  "person", "child", "dog", "cat", "horse", "cow", "bird",
+  "car", "bus", "truck", "motorcycle", "bicycle", "scooter", "cart",
+  "pole", "tree", "wall", "fence", "door", "window", "stairs", "bench",
+  "table", "trash_can", "traffic_light", "sign", "bridge", "curb",
+  "hole", "puddle", "ice", "rock",
+];
+
+/** Shared, so the mask cache below can key on the identity of the returned list. */
+const NO_NAMES: readonly string[] = [];
+
+/**
  * Class names are chosen by matching the model's actual class count. An
  * unrecognised count yields no names at all, so nothing gets mislabelled: the
  * UI falls back to announcing distance alone.
+ *
+ * NOTE: the four lists must stay different lengths, since length is the only
+ * thing distinguishing them. They are 80 / 32 / 25 / 5 today. Taking
+ * DETECTION_CLASSES to exactly 32 or 80 would silently start naming the
+ * deployed model with the wrong vocabulary — every object announced as some
+ * other object, confidently, to someone who cannot look up and check.
  */
 function classNamesFor(numClasses: number): readonly string[] {
+  // The shipping model. A stock COCO-80 detection export, and the only entry
+  // here whose classes were actually TRAINED rather than prompted — see
+  // lib/coco.ts for why that swap happened.
+  if (numClasses === COCO_CLASSES.length) return COCO_CLASSES;
   if (numClasses === DETECTION_CLASSES.length) return DETECTION_CLASSES;
+  if (numClasses === LEGACY_32_CLASSES.length) return LEGACY_32_CLASSES;
   if (numClasses === LEGACY_CLASSES.length) return LEGACY_CLASSES;
-  return [];
+  return NO_NAMES;
+}
+
+/**
+ * Model class index -> the phrase id to announce, or null for "drop it".
+ *
+ * THE VOCABULARY SEAM. The model speaks COCO ("dining table", "chair") and the
+ * app speaks phrase ids that name .wav files ("table", "bench"). Translating
+ * here, once, at the only boundary where both are visible, is what let the
+ * detector be swapped without touching the tracker, the distance model, the
+ * announcement logic or the audio: everything downstream of this file has only
+ * ever seen phrase ids and still does.
+ *
+ * It also does the curation. COCO detects toothbrushes and giraffes; a class
+ * with no entry in COCO_TO_PHRASE returns null and never reaches the user,
+ * which matters because CLAUDE.md allows ONE spoken warning per 1.5 seconds —
+ * a correctly-detected teddy bear is a car that went unsaid.
+ *
+ * Matched by NAME, never by index, so a re-export that renumbers every class
+ * needs no change here.
+ */
+const phraseCache = new WeakMap<readonly string[], (string | null)[]>();
+
+/** null means "do not filter" — an unnamed model still produces usable boxes. */
+function phraseIds(names: readonly string[]): (string | null)[] | null {
+  if (names.length === 0) return null;
+  let ids = phraseCache.get(names);
+  if (!ids) {
+    // Built once per name list: decode consults this 8400 times a frame.
+    ids = names.map(phraseIdFor);
+    phraseCache.set(names, ids);
+  }
+  return ids;
 }
 
 /** output0 is [1, 4 + numClasses, numAnchors]; the class count is read at runtime. */
 const BOX_CHANNELS = 4;
 
-const CONFIDENCE_THRESHOLD = 0.4;
+/**
+ * 0.30, down from 0.40.
+ *
+ * Not an attempt to rescue the zero-shot classes — measured peaks for those
+ * are 0.02-0.14, and no threshold recovers signal that is not there. This is
+ * for the COCO-native classes at range: a person or a car that scores 0.9
+ * filling the frame scores far lower as a small box across the street, and 0.4
+ * was cutting those off while they were still the thing worth warning about.
+ *
+ * The false positives this lets in are caught downstream rather than here:
+ * WalkMode requires CONFIRM_HITS frames of agreement before it will speak, so
+ * a detection that flickers at 0.31 for one frame never reaches the user.
+ * Lowering this without that confirmation step would have been reckless.
+ */
+const CONFIDENCE_THRESHOLD = 0.3;
 const IOU_THRESHOLD = 0.45;
 
 /** Letterbox fill, matching the value YOLO training pipelines use. */
@@ -65,13 +194,28 @@ export type Detection = {
   h: number;
 };
 
-export type WorkerRequest = { type: "frame"; bitmap: ImageBitmap };
+export type WorkerRequest =
+  | { type: "frame"; bitmap: ImageBitmap }
+  /** Runtime knobs, for app/dev/bench to measure with and without gating. */
+  | { type: "configure"; motionGating?: boolean; motionThreshold?: number };
 
 export type WorkerResponse =
   /** Model download progress. total is 0 when the server sends no length. */
   | { type: "progress"; loaded: number; total: number }
-  | { type: "ready"; backend: string }
-  | { type: "detections"; boxes: Detection[]; inferenceMs: number; luma: number }
+  | { type: "ready"; backend: string; threads: number; isolated: boolean }
+  | {
+      type: "detections";
+      boxes: Detection[];
+      /** Whole turn: preprocess + run + decode. Compare against the 60ms budget. */
+      inferenceMs: number;
+      /** Just the capture-to-tensor half, so a slow model and a slow copy are distinguishable. */
+      preprocessMs: number;
+      luma: number;
+      /** True when the network was SKIPPED because the scene had not changed. */
+      skipped: boolean;
+      /** How different this frame was from the last, 0..1. The gating signal itself. */
+      motion: number;
+    }
   | { type: "error"; message: string };
 
 // tsconfig `lib` is dom-only, so DedicatedWorkerGlobalScope is not available.
@@ -143,36 +287,55 @@ function preprocess(bitmap: ImageBitmap): Letterbox {
     planar[i + pixels * 2] = data[i * 4 + 2] / 255;
   }
 
-  lastLuma = meanLuma(data, pixels);
+  lastLuma = measureFrame(data, INPUT_SIZE, signature);
 
   return { scale, padX, padY, srcW: bitmap.width, srcH: bitmap.height };
 }
 
 /**
- * Mean perceived brightness of the frame, 0..1.
+ * MOTION GATING — the one battery saving that costs no accuracy.
  *
- * In the dark the detector does not fail loudly — it simply stops finding
- * things, which is indistinguishable from an empty pavement to someone who
- * cannot see the screen. CLAUDE.md requires degradation to be announced, and
- * this is the measurement that makes that possible. It matters here in
- * particular: Ulaanbaatar is dark from mid-afternoon for much of the year.
+ * Running a 21.6 GFLOP network eleven times a second at a scene that has not
+ * changed is the single largest pointless expense in this app. Standing at a
+ * bus stop, waiting to cross, sitting on the bus, phone pointed at the ground:
+ * in all of them the previous answer is still the correct answer, and the
+ * device is burning through the battery to recompute it.
  *
- * Rec. 601 luma, sampled every 16th pixel. The average over a 640x640 frame is
- * not improved by reading all 409,600 of them, and this runs inside the 60ms
- * budget on every frame.
+ * The check is a coarse luma grid — 16x16 cells, sampled every 8th pixel — and
+ * it is nearly free because it rides along with the brightness pass that
+ * already had to read these pixels. When the mean absolute difference against
+ * the previous frame is below MOTION_THRESHOLD, session.run() is skipped and
+ * the previous boxes are returned unchanged.
+ *
+ * WHY RETURNING THE OLD BOXES IS CORRECT, not a lie: the scene did not change,
+ * so the objects are still where they were. Re-reporting them keeps the tracker
+ * alive with the right geometry, and a static scene correctly yields a closing
+ * speed of zero.
+ *
+ * THE SAFETY BOUND is MAX_SKIP_MS. A change too gradual to trip the threshold —
+ * something approaching very slowly, or a slow pan — must not be able to hide
+ * indefinitely, so a real inference is forced at least this often no matter how
+ * still the frame looks. That caps the worst-case added latency rather than
+ * leaving it open-ended, which is the only form this optimisation is allowed to
+ * take in an app someone crosses roads with.
  */
-const LUMA_STRIDE = 16;
+let motionGating = true;
+let motionThreshold = MOTION_THRESHOLD;
 
-function meanLuma(data: Uint8ClampedArray, pixels: number): number {
-  let sum = 0;
-  let n = 0;
-  for (let i = 0; i < pixels; i += LUMA_STRIDE) {
-    const o = i * 4;
-    sum += 0.299 * data[o] + 0.587 * data[o + 1] + 0.114 * data[o + 2];
-    n++;
-  }
-  return n === 0 ? 1 : sum / n / 255;
-}
+/** Two buffers, swapped each frame, so neither is reallocated. */
+let signature = createSignature();
+let prevSignature = createSignature();
+let hasPrevSignature = false;
+
+/** The last real detections, replayed while the scene holds still. */
+let lastBoxes: Detection[] = [];
+
+/**
+ * When the network last actually ran. MAX_SKIP_MS is measured from here, so a
+ * run of skipped frames cannot extend its own deadline — the ceiling is on time
+ * since real evidence, not time since the last decision.
+ */
+let lastSkipBaseMs = 0;
 
 /** Last measured frame brightness, reported alongside the detections. */
 let lastLuma = 1;
@@ -187,12 +350,21 @@ function iou(a: Detection, b: Detection): number {
   return union <= 0 ? 0 : overlap / union;
 }
 
-/** Greedy per-class NMS. Input must be sorted by score, descending. */
+/**
+ * Greedy per-class NMS. Input must be sorted by score, descending.
+ *
+ * Suppresses on the PHRASE ID rather than the model's class index, which
+ * matters now that two COCO classes can map to one spoken word: `bench` (13)
+ * and `chair` (56) are both "Сандал". Keyed on classId, one chair scored as
+ * both would survive as two boxes, become two tracks, and be announced twice —
+ * out of a budget of one warning per 1.5 seconds. Two boxes the user cannot
+ * tell apart when spoken ARE duplicates, whatever the model called them.
+ */
 function nms(candidates: Detection[]): Detection[] {
   const kept: Detection[] = [];
   for (const candidate of candidates) {
     const suppressed = kept.some(
-      (k) => k.classId === candidate.classId && iou(k, candidate) > IOU_THRESHOLD,
+      (k) => k.className === candidate.className && iou(k, candidate) > IOU_THRESHOLD,
     );
     if (!suppressed) kept.push(candidate);
   }
@@ -210,6 +382,7 @@ function decode(output: ort.Tensor, box: Letterbox): Detection[] {
   // distance warning needs. Names fall back to classN when the lists disagree.
   const numClasses = channels - BOX_CHANNELS;
   const names = classNamesFor(numClasses);
+  const ids = phraseIds(names);
 
   const data = output.data as Float32Array;
   // Channel-major: the value for channel c at anchor a is data[c * anchors + a].
@@ -228,6 +401,15 @@ function decode(output: ort.Tensor, box: Letterbox): Detection[] {
       }
     }
     if (bestClass < 0 || bestScore <= CONFIDENCE_THRESHOLD) continue;
+
+    // Filtered AFTER the argmax, deliberately — never by excluding channels
+    // from the search itself. Masking the argmax would let a street sign the
+    // model scored at 0.9 come back as whatever essential class happened to
+    // score second, and a confident wrong name is the one failure mode this
+    // file already refuses elsewhere: the user cannot look up to check it.
+    // Dropping the detection outright is the correct trade.
+    const phraseId = ids ? ids[bestClass] : "";
+    if (phraseId === null) continue;
 
     // Centre xywh in letterboxed space -> top-left xywh in original space.
     const cx = at(0, a);
@@ -249,9 +431,12 @@ function decode(output: ort.Tensor, box: Letterbox): Detection[] {
 
     candidates.push({
       classId: bestClass,
-      // Empty when the class count is unrecognised — the UI then says the
-      // distance without naming the object, rather than naming it wrongly.
-      className: names[bestClass] ?? "",
+      // Already the app's phrase id, not the model's own name — translated at
+      // the vocabulary seam above, so nothing downstream needs to know the
+      // detector speaks COCO. Empty when the class count is unrecognised: the
+      // UI then says the distance without naming the object, rather than
+      // naming it wrongly.
+      className: phraseId,
       score: bestScore,
       x: x0,
       y: y0,
@@ -276,9 +461,48 @@ async function handleFrame(bitmap: ImageBitmap) {
 
   try {
     const box = preprocess(bitmap);
+    const preprocessMs = performance.now() - started;
+
+    // Decided with the pixels already in hand, after preprocess() has filled
+    // `signature`. Comparing before the copy would need a second decode of the
+    // frame, which is most of what skipping was meant to save.
+    const motion = hasPrevSignature ? motionBetween(signature, prevSignature) : 1;
+    const skip = shouldSkipInference({
+      enabled: motionGating,
+      hasPrevious: hasPrevSignature,
+      motion,
+      threshold: motionThreshold,
+      msSinceRealInference: performance.now() - lastSkipBaseMs,
+      maxSkipMs: MAX_SKIP_MS,
+    });
+
+    // Swapped rather than copied: two buffers, neither reallocated per frame.
+    const previous = prevSignature;
+    prevSignature = signature;
+    signature = previous;
+    hasPrevSignature = true;
+
+    if (skip) {
+      post({
+        type: "detections",
+        // The scene did not change, so the previous answer is still the correct
+        // one. Replaying it keeps every track alive with the right geometry.
+        boxes: lastBoxes,
+        luma: lastLuma,
+        inferenceMs: Math.round(performance.now() - started),
+        preprocessMs: Math.round(preprocessMs),
+        skipped: true,
+        motion,
+      });
+      return;
+    }
+
     const tensor = new ort.Tensor("float32", planar, [1, 3, INPUT_SIZE, INPUT_SIZE]);
     const results = await session.run({ [session.inputNames[0]]: tensor });
     const boxes = decode(results.output0, box);
+
+    lastBoxes = boxes;
+    lastSkipBaseMs = performance.now();
 
     post({
       type: "detections",
@@ -287,6 +511,9 @@ async function handleFrame(bitmap: ImageBitmap) {
       // Whole turn: preprocess + run + decode. This is the number to compare
       // against the 60ms budget.
       inferenceMs: Math.round(performance.now() - started),
+      preprocessMs: Math.round(preprocessMs),
+      skipped: false,
+      motion,
     });
   } catch (e) {
     fail("inference failed", e);
@@ -298,11 +525,37 @@ async function handleFrame(bitmap: ImageBitmap) {
 
 ctx.addEventListener("message", (ev: MessageEvent) => {
   const msg = ev.data as WorkerRequest;
-  if (msg?.type === "frame") void handleFrame(msg.bitmap);
+  if (msg?.type === "frame") {
+    void handleFrame(msg.bitmap);
+    return;
+  }
+  if (msg?.type === "configure") {
+    // Exists so app/dev/bench can measure the SAME device with gating on and
+    // off. A saving claimed from two different runs on two different scenes is
+    // not a measurement.
+    if (typeof msg.motionGating === "boolean") motionGating = msg.motionGating;
+    if (typeof msg.motionThreshold === "number") motionThreshold = msg.motionThreshold;
+  }
 });
 
-/** Model download can stall on a slow tunnel; session init can hang on a bad GPU driver. */
-const DOWNLOAD_TIMEOUT_MS = 300_000;
+/**
+ * Model download can stall on a slow tunnel; session init can hang on a bad GPU
+ * driver.
+ *
+ * The download bound is 10 minutes and not the old 5 because 5 was quietly
+ * doing the opposite of its job. This model is 39 MB, and it does not download
+ * alone — WalkMode starts the worker and decodes the ~5.6 MB phrase set at the
+ * same time, over the same link. On anything slower than a good 4G connection
+ * the model's share runs past 5 minutes easily, and a bound that trips on a
+ * download still making steady progress reports a hang that is not happening
+ * and costs the user the whole session.
+ *
+ * This is a hang detector, not a patience budget. It belongs far enough above
+ * the worst plausible real download that firing means something is wedged.
+ * Progress is already visible meanwhile: streamToBuffer() posts every 250 ms
+ * and WalkMode renders it as a percentage.
+ */
+const DOWNLOAD_TIMEOUT_MS = 600_000;
 const SESSION_TIMEOUT_MS = 120_000;
 
 /**
@@ -330,7 +583,7 @@ function withTimeout<T>(work: Promise<T>, ms: number, what: string): Promise<T> 
  */
 
 /** Bump to invalidate cached model bytes after re-exporting. */
-const MODEL_CACHE = "vision-model-v3";
+const MODEL_CACHE = "vision-model-v4";
 
 /** Everything this app has ever written, so stale versions can be found again. */
 const MODEL_CACHE_PREFIX = "vision-model-";
@@ -500,7 +753,12 @@ async function load() {
   try {
     session = await create(["webgpu", "wasm"]);
     await warmUp(session);
-    post({ type: "ready", backend: "webgpu/wasm" });
+    post({
+      type: "ready",
+      backend: "webgpu/wasm",
+      threads: ort.env.wasm.numThreads ?? 1,
+      isolated: typeof crossOriginIsolated !== "undefined" && crossOriginIsolated,
+    });
     return;
   } catch (e) {
     // Falls through to a plainer configuration rather than dying here: WebGPU
@@ -524,7 +782,12 @@ async function load() {
     ort.env.wasm.numThreads = 1;
     session = await create(["wasm"]);
     await warmUp(session);
-    post({ type: "ready", backend: "wasm (1 thread)" });
+    post({
+      type: "ready",
+      backend: "wasm (1 thread)",
+      threads: 1,
+      isolated: typeof crossOriginIsolated !== "undefined" && crossOriginIsolated,
+    });
   } catch (e) {
     fail("failed to create an inference session", e);
   }
