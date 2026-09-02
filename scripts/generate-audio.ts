@@ -1,38 +1,63 @@
 /**
- * Pre-renders every phrase in lib/phrases.ts to public/audio/<id>.wav using the
- * Chimege TTS API. Warning audio is pre-rendered, never a live TTS call.
+ * Pre-renders every phrase in lib/phrases.ts to public/audio/<id>.wav.
  *
- *   npx tsx scripts/generate-audio.ts
+ *   npx tsx scripts/generate-audio.ts              # provider from TTS_PROVIDER
+ *   npx tsx scripts/generate-audio.ts --dry-run    # plan + char count, no calls
+ *   npx tsx scripts/generate-audio.ts --force         # re-encode, no API calls
+ *   npx tsx scripts/generate-audio.ts --resynthesize  # re-call the API (costs quota)
  *
- * Reads CHIMEGE_TOKEN from .env.local (or the environment). Optional:
- * CHIMEGE_VOICE picks a voice, e.g. FEMALE1 / MALE1; unset uses the API default.
+ * This script never names a vendor — it asks lib/tts for a provider and uses
+ * the interface, the same as scripts/generate-transit-audio.ts. Swapping
+ * engines is an env change (TTS_PROVIDER=), not a refactor; Chimege's free
+ * tier already forced one such switch mid-build.
  *
- * Existing files are left alone. Pass --force to re-synthesize them (needed
- * after changing the voice, or the text of a phrase that already has a file).
+ * Clips are cached under .cache/audio/, keyed by a hash of PROVIDER + VOICE +
+ * TEXT — the same cache directory and key shape the transit build uses, since
+ * it is the same underlying fact: this exact text has already been paid for
+ * with this exact voice. Without the provider and voice in the key, a switch
+ * would silently mix two voices across public/audio/, which for someone who
+ * cannot see the screen is far worse than a mispronounced word — it reads as
+ * a different, unexplained voice interrupting the one they were following.
+ *
+ * public/audio/manifest.json remembers which hash produced each on-disk file,
+ * so an unrelated phrase edit does not re-spend quota on 84 other clips, and a
+ * provider/voice switch is detected even though the filename never changes.
  */
+import { createHash } from "node:crypto";
+import { execFile } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
+import { promisify } from "node:util";
 
-import { PHRASES, type Phrase } from "../lib/phrases";
+import ffmpegPath from "ffmpeg-static";
+import { AuthError, QuotaError, selectProvider, withRetry, type TtsProvider } from "../lib/tts/provider";
+import { AZURE_F0_MONTHLY_CHARS } from "../lib/tts/providers/azure";
+import { PHRASES } from "../lib/phrases";
 
-const ENDPOINT = "https://api.chimege.com/v1.2/synthesize";
-
-/**
- * Chimege rejects anything outside this set with a plain-text error:
- * Cyrillic letters, spaces, ? ! . - ' " : and commas. Checked before sending so
- * a bad phrase fails here rather than writing an "audio" file full of English
- * error prose.
- */
-const ALLOWED_TEXT = /^[Ѐ-ӿ ?!.\-'":,]+$/;
-
+const execFileAsync = promisify(execFile);
 const root = process.cwd();
+const args = new Set(process.argv.slice(2));
+
+const OUT_DIR = "public/audio";
+// Shared with scripts/generate-transit-audio.ts on purpose: both scripts cache
+// the same thing — provider's own audio for a given (provider, voice, text) —
+// and a phrase that happens to match a transit clip's text should not be paid
+// for twice.
+const CACHE_DIR = ".cache/audio";
+const MANIFEST = "public/audio/manifest.json";
+const USAGE_FILE = ".cache/tts-usage.json";
+
+/** `--force` re-ENCODES from cached provider audio; `--resynthesize` re-calls the API. */
+const FORCE = args.has("--force") || args.has("--resynthesize");
+const RESYNTH = args.has("--resynthesize");
+const DRY_RUN = args.has("--dry-run");
+
 if (!existsSync(join(root, "public"))) {
-  console.error(`No public/ directory under ${root} — run this from the project root.`);
+  console.error(`No public/ under ${root} — run this from the project root.`);
   process.exit(1);
 }
 
-/** Minimal .env.local reader — this is a standalone script, not a Next runtime. */
 function loadEnvLocal() {
   const path = join(root, ".env.local");
   if (!existsSync(path)) return;
@@ -43,54 +68,57 @@ function loadEnvLocal() {
     if (!process.env[name]) process.env[name] = raw.replace(/^["']|["']$/g, "");
   }
 }
-
 loadEnvLocal();
 
-function requireToken(): string {
-  const value = process.env.CHIMEGE_TOKEN;
-  if (value) return value;
-  console.error("CHIMEGE_TOKEN is not set (looked in the environment and .env.local).");
-  process.exit(1);
+/** PROVIDER + VOICE + text. All three, so a switch cannot mix voices silently. */
+const clipHash = (provider: TtsProvider, text: string) =>
+  createHash("sha256").update(`${provider.name}\n${provider.voice}\n${text}`, "utf8").digest("hex");
+
+type ManifestEntry = { sha: string; provider: string; voice: string };
+
+// ------------------------------------------------------------------ encode
+
+/**
+ * Trim the leading silence the Azure engine adds (~200ms measured on real
+ * clips — see generate-transit-audio.ts) and land on plain 16-bit PCM WAV,
+ * which is what every existing clip already is and what decodeAudioData wants
+ * with the least work. 24kHz mono matches Azure's own source rate, so this is
+ * a format change, not a resample.
+ */
+const TRIM_FILTER = "silenceremove=start_periods=1:start_duration=0:start_threshold=-45dB:start_silence=0.02";
+const WAV_ARGS = ["-af", TRIM_FILTER, "-c:a", "pcm_s16le", "-ac", "1", "-ar", "24000"];
+
+async function toWav(srcPath: string, dest: string): Promise<void> {
+  // From a file, not a pipe: promisify(execFile) has no `input` option, so a
+  // pipe-based version leaves ffmpeg waiting on stdin that never arrives.
+  await execFileAsync(ffmpegPath as unknown as string, [
+    "-hide_banner", "-loglevel", "error", "-y", "-i", srcPath, ...WAV_ARGS, dest,
+  ]);
 }
 
-const token = requireToken();
+// ------------------------------------------------------------------- usage
 
-const voice = process.env.CHIMEGE_VOICE;
-const force = process.argv.includes("--force");
-const outDir = resolve(root, "public/audio");
+type Usage = { month: string; chars: Record<string, number> };
 
-async function synthesize(phrase: Phrase): Promise<Buffer> {
-  if (!ALLOWED_TEXT.test(phrase.mn)) {
-    throw new Error(`"${phrase.mn}" has characters Chimege rejects (Cyrillic + ? ! . - ' " : , only)`);
+function loadUsage(): Usage {
+  const month = new Date().toISOString().slice(0, 7);
+  const path = join(root, USAGE_FILE);
+  if (!existsSync(path)) return { month, chars: {} };
+  try {
+    const u = JSON.parse(readFileSync(path, "utf8")) as Usage;
+    return u.month === month ? u : { month, chars: {} };
+  } catch {
+    return { month, chars: {} };
   }
-
-  const headers: Record<string, string> = {
-    token,
-    // Plain text, NOT SSML — Chimege treats markup as illegal characters.
-    "Content-Type": "text/plain; charset=utf-8",
-  };
-  if (voice) headers["voice-id"] = voice;
-
-  const res = await fetch(ENDPOINT, {
-    method: "POST",
-    headers,
-    body: Buffer.from(phrase.mn, "utf8"),
-  });
-
-  const body = Buffer.from(await res.arrayBuffer());
-
-  if (!res.ok) {
-    throw new Error(`${res.status} ${res.statusText} — ${body.toString("utf8").trim()}`);
-  }
-
-  // Chimege returns its errors as HTTP 200 with a text body. Without this check
-  // the error prose gets written to disk as a .wav that plays nothing.
-  if (body.subarray(0, 4).toString("ascii") !== "RIFF") {
-    throw new Error(`not audio — ${body.toString("utf8").trim().slice(0, 200)}`);
-  }
-
-  return body;
 }
+
+async function persistUsage(usage: Usage, provider: TtsProvider) {
+  usage.chars[provider.name] = (usage.chars[provider.name] ?? 0) + (provider.charsUsed ?? 0);
+  await mkdir(join(root, ".cache"), { recursive: true });
+  await writeFile(join(root, USAGE_FILE), JSON.stringify(usage, null, 2), "utf8");
+}
+
+// -------------------------------------------------------------------- main
 
 async function main() {
   const seen = new Set<string>();
@@ -102,35 +130,102 @@ async function main() {
     seen.add(phrase.id);
   }
 
-  await mkdir(outDir, { recursive: true });
-  console.log(`Chimege${voice ? ` (${voice})` : ""} → public/audio/  (${PHRASES.length} phrases)\n`);
+  const provider = await selectProvider();
+  console.log(`Vision Access — phrase audio pre-render`);
+  console.log(`  provider : ${provider.name}`);
+  console.log(`  voice    : ${provider.voice}\n`);
 
-  let written = 0;
-  let skipped = 0;
-  const failed: string[] = [];
+  const rejected = provider.accepts
+    ? PHRASES.filter((p) => !provider.accepts!.test(p.mn))
+    : [];
+  if (rejected.length) {
+    console.error(`${rejected.length} phrases contain characters ${provider.name} rejects:`);
+    for (const p of rejected) console.error(`  ${p.id}  ${JSON.stringify(p.mn)}`);
+    process.exit(1);
+  }
 
-  // Sequential on purpose: a handful of files, and it keeps well under any rate limit.
-  for (const phrase of PHRASES) {
-    const file = join(outDir, `${phrase.id}.wav`);
+  const chars = PHRASES.reduce((a, p) => a + p.mn.length, 0);
+  console.log(`  phrases: ${PHRASES.length}   characters if all re-synthesized: ${chars.toLocaleString()}`);
 
-    if (!force && existsSync(file)) {
-      console.log(`skip   ${phrase.id}.wav`);
-      skipped++;
-      continue;
-    }
+  await mkdir(join(root, OUT_DIR), { recursive: true });
+  await mkdir(join(root, CACHE_DIR), { recursive: true });
 
-    try {
-      const audio = await synthesize(phrase);
-      await writeFile(file, audio);
-      console.log(`write  ${phrase.id}.wav  "${phrase.mn}"  ${(audio.length / 1024).toFixed(1)} KB`);
-      written++;
-    } catch (e) {
-      console.error(`FAIL   ${phrase.id}.wav  ${e instanceof Error ? e.message : String(e)}`);
-      failed.push(phrase.id);
+  const manifest: Record<string, ManifestEntry> = existsSync(join(root, MANIFEST))
+    ? JSON.parse(readFileSync(join(root, MANIFEST), "utf8"))
+    : {};
+
+  const usage = loadUsage();
+  const alreadyThisMonth = usage.chars[provider.name] ?? 0;
+
+  const toRender = PHRASES.filter((p) => {
+    const hash = clipHash(provider, p.mn);
+    const dest = join(root, OUT_DIR, `${p.id}.wav`);
+    const entry = manifest[p.id];
+    if (!FORCE && entry?.sha === hash && existsSync(dest)) return false;
+    const cached = join(root, CACHE_DIR, `${hash}.${provider.outputFormat}`);
+    return RESYNTH || !existsSync(cached);
+  });
+  const newChars = toRender.reduce((a, p) => a + p.mn.length, 0);
+
+  console.log(`  cached already: ${PHRASES.length - toRender.length}   to synthesize: ${toRender.length} (${newChars.toLocaleString()} chars)`);
+
+  if (provider.name === "azure") {
+    const after = alreadyThisMonth + newChars;
+    const pct = ((after / AZURE_F0_MONTHLY_CHARS) * 100).toFixed(1);
+    console.log(`  F0 quota: ${alreadyThisMonth.toLocaleString()} used this month → ${after.toLocaleString()} / ${AZURE_F0_MONTHLY_CHARS.toLocaleString()} (${pct}%)`);
+    if (after > AZURE_F0_MONTHLY_CHARS) {
+      console.error(`\n  This run would exceed the F0 monthly allowance. Aborting before spending it.`);
+      process.exit(1);
     }
   }
 
-  console.log(`\n${written} written, ${skipped} skipped, ${failed.length} failed`);
+  if (DRY_RUN) {
+    console.log(`\nDry run — no files written.`);
+    return;
+  }
+
+  let rendered = 0;
+  let reencoded = 0;
+  const skipped = PHRASES.length - toRender.length;
+  const failed: string[] = [];
+
+  // Sequential: a rate limit here should back off, not fan out into more of them.
+  for (const phrase of PHRASES) {
+    const hash = clipHash(provider, phrase.mn);
+    const dest = join(root, OUT_DIR, `${phrase.id}.wav`);
+    const entry = manifest[phrase.id];
+
+    if (!FORCE && entry?.sha === hash && existsSync(dest)) {
+      continue;
+    }
+
+    const cachedRaw = join(root, CACHE_DIR, `${hash}.${provider.outputFormat}`);
+
+    try {
+      if (RESYNTH || !existsSync(cachedRaw)) {
+        const audio = await withRetry(() => provider.synthesize(phrase.mn), { label: phrase.id });
+        await writeFile(cachedRaw, audio);
+        rendered++;
+      } else {
+        reencoded++;
+      }
+
+      await toWav(cachedRaw, dest);
+      manifest[phrase.id] = { sha: hash, provider: provider.name, voice: provider.voice };
+      console.log(`write  ${phrase.id}.wav  "${phrase.mn}"`);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      console.error(`FAIL   ${phrase.id}.wav  ${message}`);
+      failed.push(phrase.id);
+      if (e instanceof AuthError || e instanceof QuotaError) break; // terminal; no point continuing
+    }
+  }
+
+  await writeFile(join(root, MANIFEST), JSON.stringify(manifest, null, 2), "utf8");
+  await persistUsage(usage, provider);
+
+  console.log(`\n${rendered} synthesized, ${reencoded} re-encoded from cache, ${skipped} already current, ${failed.length} failed`);
+  console.log(`characters spent this run: ${(provider.charsUsed ?? 0).toLocaleString()}`);
   if (failed.length > 0) {
     console.error(`Re-run to retry: ${failed.join(", ")}`);
     process.exit(1);

@@ -23,44 +23,134 @@ export const PHRASES: Phrase[] = [
   // ---- Objects ----------------------------------------------------------
   // This order defines the model's class indices. See DETECTION_CLASSES, and
   // keep the Colab export's class list derived from it.
+  //
+  // WHAT THE MODEL CAN ACTUALLY SEE — measured, and the first thing to know.
+  //
+  // THIS LIST IS NO LONGER THE MODEL'S VOCABULARY. lib/coco.ts is. The
+  // detector was YOLOE with these 25 classes baked in as CLIP text embeddings,
+  // which made every class here look equally available. They were not:
+  //
+  //   bus 0.95   person 0.94   dog 0.49        <- all COCO-native
+  //   trash_can 0.14   tree 0.04   fence 0.03   door 0.02   pole <0.02
+  //
+  // The split was exact. Classes YOLO was TRAINED on detected strongly;
+  // classes that existed only as a text prompt sat at noise and never cleared
+  // the 0.30 threshold. That note used to end "needs a retrained model, not a
+  // tweak" — and that is what happened. The app now runs a stock COCO-80
+  // detector, so the twelve reachable ids are:
+  //
+  //   person, dog, cat, horse, cow, car, bus, truck, motorcycle, bicycle,
+  //   bench (also fed by COCO `chair`), table
+  //
+  // The other thirteen — pole, tree, wall, fence, door, stairs, trash_can,
+  // curb, scaffolding, cable, hole, ice, rock — are UNREACHABLE today. They
+  // are kept, with their wavs, for two reasons: an older export still cached
+  // on a phone names its classes with these ids and must keep working, and the
+  // moment a vocabulary containing them exists they cost nothing to re-enable.
+  //
+  // Adding a class here does NOT make the detector find it. The mapping in
+  // lib/coco.ts is what decides, and it can only map what COCO contains.
+  // Winning back a pole or a kerb is a data problem — an Objects365 or LVIS
+  // checkpoint, or hand-labelled UB street photos — not an entry in this list.
+  //
+  // CURATION POLICY — read before adding a class back.
+  //
+  // A class earns its place by being something that can injure this user, not
+  // by being something the camera can name. Three costs are paid per class,
+  // and only the first is obvious:
+  //
+  //   1. Another wav fetched before the app can speak at all. The startup set
+  //      is downloaded in full on a phone over mobile data.
+  //   2. Another channel in the ONNX head, and one more thing the detector can
+  //      be wrong about.
+  //   3. A share of the announcement budget. CLAUDE.md allows ONE spoken
+  //      warning per 1.5 seconds. Every class competes for that slot, so a
+  //      correctly-detected bird is not free — it is a car that went unsaid.
+  //
+  // (3) is why this list is short. The previous 60-entry vocabulary was a list
+  // of things findable on a street; this is a list of things worth interrupting
+  // someone for. When in doubt leave it out: CLAUDE.md is explicit that silence
+  // is the correct output under uncertainty, and a missing warning costs
+  // nothing next to a false one.
 
-  // People and animals
+  // People and animals. Street dogs are common in UB and do not step aside for
+  // someone who cannot make eye contact with them.
+  //
+  // `child` is deliberately gone: it is a second word for an identical warning,
+  // and person-vs-child is a distinction the user cannot act on differently.
+  // cat, bird, sheep, goat, horse and cow are gone because none of them can
+  // injure a pedestrian, and any one of them could spend the single
+  // announcement available per 1.5s that a car needed.
   { id: "person", mn: "Хүн", en: "person", kind: "object" },
-  { id: "child", mn: "Хүүхэд", en: "child", kind: "object" },
   { id: "dog", mn: "Нохой", en: "dog", kind: "object" },
+  // Restored after measurement. These were cut as "cannot injure a
+  // pedestrian", which is true and was the wrong test to apply alone: they are
+  // COCO-native, so they are among the few classes this model can actually
+  // FIND, and cutting them left the app with almost nothing to report but
+  // people. A cat underfoot is also a genuine trip hazard, and livestock on
+  // the road is an ordinary sight outside central UB.
   { id: "cat", mn: "Муур", en: "cat", kind: "object" },
   { id: "horse", mn: "Морь", en: "horse", kind: "object" },
   { id: "cow", mn: "Үхэр", en: "cow", kind: "object" },
-  { id: "bird", mn: "Шувуу", en: "bird", kind: "object" },
 
-  // Vehicles
+  // Vehicles. The only things on this list that can kill, so they are the last
+  // classes that would ever be cut.
+  //
+  // scooter, kick_scooter, cart, stroller and wheelchair are dropped: they are
+  // rarer, they are visually confusable with bicycle/motorcycle, and the
+  // warning a user acts on is the same either way — something is coming.
   { id: "car", mn: "Машин", en: "car", kind: "object" },
   { id: "bus", mn: "Автобус", en: "bus", kind: "object" },
   { id: "truck", mn: "Ачааны машин", en: "truck", kind: "object" },
   { id: "motorcycle", mn: "Мотоцикл", en: "motorcycle", kind: "object" },
   { id: "bicycle", mn: "Дугуй", en: "bicycle", kind: "object" },
-  { id: "scooter", mn: "Скутер", en: "scooter", kind: "object" },
-  { id: "cart", mn: "Тэрэг", en: "cart", kind: "object" },
 
-  // Street furniture and structures
+  // Street furniture and structures. Body-height collisions: a cane finds the
+  // base of a pole about a step before a shoulder finds the rest of it, and
+  // stairs are where a stumble becomes an injury.
+  //
+  // The long tail is gone — bollard, fire_hydrant, planter, kiosk, awning,
+  // bus_stop, barrier, boxes, luggage, dumpster, hedge, ladder, step, table,
+  // window, glass_door. Each was a plausible obstacle and a near-certain source
+  // of chatter, and `wall` already covers "a flat thing is in front of you".
+  //
+  // `sign` and `bridge` are dropped as too frequent and not collidable
+  // respectively. `traffic_light` is dropped on purpose and not for size:
+  // CLAUDE.md forbids this app from speaking to traffic signals at all, and
+  // naming one out loud invites precisely the reading — "it saw the light, so
+  // it must be telling me to cross" — that the rule exists to prevent.
   { id: "pole", mn: "Шон", en: "pole", kind: "object" },
   { id: "tree", mn: "Мод", en: "tree", kind: "object" },
   { id: "wall", mn: "Хана", en: "wall", kind: "object" },
   { id: "fence", mn: "Хашаа", en: "fence", kind: "object" },
   { id: "door", mn: "Хаалга", en: "door", kind: "object" },
-  { id: "window", mn: "Цонх", en: "window", kind: "object" },
   { id: "stairs", mn: "Шат", en: "stairs", kind: "object" },
   { id: "bench", mn: "Сандал", en: "bench", kind: "object" },
+  // Restored for the same reason as the animals above, and it earns its place
+  // twice over: COCO-native (so actually detectable), and the one class on
+  // this whole list that appears INDOORS, where the app is inevitably tested
+  // first. Waist height, hard edges, invisible to a cane sweeping below it.
   { id: "table", mn: "Ширээ", en: "table", kind: "object" },
   { id: "trash_can", mn: "Хогийн сав", en: "trash can", kind: "object" },
-  { id: "traffic_light", mn: "Гэрлэн дохио", en: "traffic light", kind: "object" },
-  { id: "sign", mn: "Тэмдэг", en: "sign", kind: "object" },
-  { id: "bridge", mn: "Гүүр", en: "bridge", kind: "object" },
   { id: "curb", mn: "Хашлага", en: "curb / railing", kind: "object" },
 
-  // Ground hazards
+  // Overhead hazards — above head height, no ground contact. See lib/path.ts
+  // isOverhead(): this is the case a white cane sweeps straight under.
+  // These two survive a cut aimed at everything non-essential precisely
+  // because they are the class of hazard the cane cannot report. `umbrella` is
+  // dropped: it is the one overhead object that is usually attached to a
+  // person who is already being detected.
+  { id: "scaffolding", mn: "Барилгын шат", en: "scaffolding", kind: "object" },
+  { id: "cable", mn: "Утас", en: "low-hanging cable", kind: "object" },
+
+  // Ground hazards. `hole` covers the open manhole case, which in UB is a real
+  // fall and not a theoretical one, so manhole is redundant rather than absent.
+  //
+  // `ice` stays where `puddle` and `snow_pile` go: standing water is a wet
+  // shoe, ice is a fractured wrist, and Mongolia is frozen for a third of the
+  // year. crosswalk, speed_bump and ramp are road MARKINGS — flat, unhittable,
+  // and describing them edges toward telling someone where to cross.
   { id: "hole", mn: "Нүх", en: "hole", kind: "object" },
-  { id: "puddle", mn: "Шалбааг", en: "puddle", kind: "object" },
   { id: "ice", mn: "Мөс", en: "ice", kind: "object" },
   { id: "rock", mn: "Чулуу", en: "rock", kind: "object" },
 
