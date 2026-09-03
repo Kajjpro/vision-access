@@ -67,7 +67,17 @@ export type RecordedEvent =
    * wake-lock acquire and release. Logged so a remount is LEGIBLE afterwards
    * rather than inferred from a hole in the trace.
    */
-  | { t: number; kind: "lifecycle"; event: string; detail?: string }
+  | {
+      t: number; kind: "lifecycle"; event: string; detail?: string;
+      /**
+       * Structured payload, for events whose fields the analyser has to compare
+       * rather than print. Audio transitions carry the whole discriminating set
+       * here — a detail string would have to be re-parsed to answer "was the
+       * silent element still playing", which is the question that separates a
+       * screen-lock suspension from a call taking the audio session.
+       */
+      data?: Record<string, string | number | boolean | null>;
+    }
   /**
    * Proof the page was alive, independent of whether fixes were arriving.
    *
@@ -183,7 +193,11 @@ export type Recorder = {
   haptic(pattern: number[], accepted?: boolean): void;
   missing(keys: string[]): void;
   silentPush(keys: string[], label: string, audio: string): void;
-  lifecycle(event: string, detail?: string): void;
+  lifecycle(
+    event: string,
+    detail?: string,
+    data?: Record<string, string | number | boolean | null>,
+  ): void;
   heartbeat(visible: boolean, audio: string): void;
   note(text: string): void;
   battery(level: number, charging: boolean): void;
@@ -330,8 +344,8 @@ export function createRecorder(
 
     earcon(id) { push({ t: now(), kind: "earcon", id }); },
 
-    lifecycle(event, detail) {
-      push({ t: now(), kind: "lifecycle", event, detail });
+    lifecycle(event, detail, data) {
+      push({ t: now(), kind: "lifecycle", event, detail, data });
       // Lifecycle events are exactly the moments the page may not come back,
       // so they are written immediately rather than waiting for the interval.
       write();

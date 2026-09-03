@@ -136,8 +136,79 @@ if (!buzzes.length) {
   }
 }
 
+// ------------------------------------ suspension vs interruption vs refusal
+type Life = Extract<Recording["events"][number], { kind: "lifecycle" }>;
+const lifeAll = rec.events.filter((e): e is Life => e.kind === "lifecycle");
+
+console.log(`\n--- WHY THE AUDIO DIED ---`);
+const audioEvents = lifeAll.filter((e) => e.event === "audiocontext");
+const resumes = lifeAll.filter((e) => e.event === "audio-resume");
+const silentEvents = lifeAll.filter((e) => e.event === "silent-audio");
+
+if (!audioEvents.length && !resumes.length) {
+  console.log("  no audio transitions — the context stayed in one state throughout");
+} else {
+  /**
+   * The two failures end in the same place and need different answers.
+   *
+   *   silent element still playing   the page was throttled — a suspension
+   *   silent element paused          something took the session — an interruption
+   *
+   * WebKit also names the second case outright with a non-standard
+   * "interrupted" state, so that word appearing at all is decisive.
+   */
+  let suspensions = 0;
+  let interruptions = 0;
+  for (const e of audioEvents) {
+    const state = String(e.data?.state ?? "");
+    if (state === "running") continue;
+    const silent = String(e.data?.silentAudio ?? "unknown");
+    const isInterruption = state === "interrupted" || silent === "paused";
+    if (isInterruption) interruptions++; else suspensions++;
+    console.log(
+      `  ${rel(e.t).padStart(7)}  ${state.padEnd(12)} visibility=${String(e.data?.visibility).padEnd(7)}` +
+      ` silentAudio=${silent.padEnd(7)} wakeLock=${e.data?.wakeLock}` +
+      `   ${isInterruption ? "<< INTERRUPTION (session taken)" : "<< suspension (page throttled)"}`,
+    );
+  }
+  console.log(`  suspensions ${suspensions} · interruptions ${interruptions}`);
+  if (interruptions) {
+    console.log("  An interrupted context does not reliably resume when the interruption");
+    console.log("  ends, even on a gesture. Check the resume outcomes below.");
+  }
+
+  console.log(`\n  silent <audio> element (${silentEvents.length} events):`);
+  for (const e of silentEvents) {
+    console.log(`  ${rel(e.t).padStart(7)}  ${e.detail} (context ${e.data?.state}, visibility ${e.data?.visibility})`);
+  }
+
+  console.log(`\n  resume attempts (${resumes.length}):`);
+  if (!resumes.length) {
+    console.log("     none — the context never needed one, or never got one");
+  }
+  for (const e of resumes) {
+    const ok = e.data?.outcome === "resolved" && e.data?.after === "running";
+    console.log(
+      `  ${rel(e.t).padStart(7)}  ${String(e.data?.reason).padEnd(26)} ${String(e.data?.outcome).padEnd(9)}` +
+      ` -> ${String(e.data?.after).padEnd(12)} ${ok ? "RECOVERED" : "still dead"}` +
+      `${e.data?.error ? ` (${e.data.error})` : ""}`,
+    );
+  }
+  const gestureless = resumes.filter((e) => String(e.data?.reason).startsWith("visibilitychange"));
+  const recovered = gestureless.filter((e) => e.data?.after === "running");
+  if (gestureless.length) {
+    console.log(`\n  resumes attempted WITHOUT a gesture: ${gestureless.length}, of which recovered: ${recovered.length}`);
+    console.log(recovered.length
+      ? "  Audio CAN come back without a user gesture on this device."
+      : "  Audio CANNOT come back without a user gesture on this device — the rider");
+    if (!recovered.length) {
+      console.log("  must touch the phone before it can speak again, and it cannot tell them so.");
+    }
+  }
+}
+
 // -------------------------------------------------------------- lifecycle
-const life = rec.events.filter((e): e is Extract<typeof e, { kind: "lifecycle" }> => e.kind === "lifecycle");
+const life = lifeAll;
 console.log(`\n--- PAGE LIFECYCLE (${life.length} events) ---`);
 for (const e of life) console.log(`  ${rel(e.t).padStart(7)}  ${e.event}${e.detail ? ` — ${e.detail}` : ""}`);
 const unloaded = life.filter((e) => e.event === "pagehide" && e.detail?.includes("UNLOADED")).length;
