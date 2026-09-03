@@ -147,8 +147,73 @@ export function RideScreen({
     setLog((l) => [`${new Date().toLocaleTimeString()} ${line}`, ...l].slice(0, 60));
   }, []);
 
-  /** AudioContext.state, or "none" before the first gesture has built one. */
-  const audioState = useCallback(() => ctxRef.current?.state ?? "none", []);
+  /**
+   * AudioContext.state, or "none" before the first gesture has built one.
+   *
+   * Read as a raw string, never narrowed to the three standard values: WebKit
+   * exposes a non-standard "interrupted" state, and that word arriving in a
+   * trace is itself the finding.
+   */
+  const audioState = useCallback((): string => ctxRef.current?.state ?? "none", []);
+
+  /**
+   * EVERYTHING NEEDED TO TELL A SUSPENSION FROM AN INTERRUPTION.
+   *
+   * Both end with a context that makes no sound, and on iOS both can arrive
+   * while the document is hidden — so state and visibility alone cannot
+   * separate them, and they have different answers. A screen-lock suspension is
+   * a throttling problem; a call or Siri taking the audio session is an
+   * ownership problem, and an interrupted context does not reliably resume when
+   * the interruption ends.
+   *
+   * The silent <audio> element is the discriminator. It exists to hold the
+   * audio pipeline open, so:
+   *
+   *   element still playing, context not running   the page was throttled
+   *   element paused by the system                 something took the session
+   *
+   * `paused` is the element's own view, and the system pausing it is not
+   * something this code ever asks for — so a paused element with no teardown in
+   * the log means an external owner.
+   */
+  const audioSnapshot = useCallback((): Record<string, string | number | boolean | null> => {
+    const el = silentAudioRef.current;
+    return {
+      state: audioState(),
+      visibility: typeof document === "undefined" ? "none" : document.visibilityState,
+      silentAudio: el ? (el.paused ? "paused" : "playing") : "absent",
+      silentAudioTime: el ? Number(el.currentTime.toFixed(1)) : null,
+      silentAudioEnded: el ? el.ended : null,
+      wakeLock: wakeLockRef.current ? "held" : "none",
+    };
+  }, [audioState]);
+
+  /**
+   * Attempt a resume and RECORD WHAT HAPPENED, including the refusal.
+   *
+   * On iOS a suspended context cannot be resumed outside a user gesture and an
+   * interrupted one may refuse even inside it. The distinction only shows up in
+   * whether the promise rejects and what the state is afterwards, so both are
+   * captured rather than the attempt being fire-and-forget.
+   */
+  const tryResume = useCallback(async (reason: string) => {
+    const ctx = ctxRef.current;
+    if (!ctx) return;
+    const before = audioSnapshot();
+    try {
+      await ctx.resume();
+      recorderRef.current.lifecycle("audio-resume", `${reason}: ${before.state} -> ${ctx.state}`, {
+        ...before, reason, outcome: "resolved", after: ctx.state,
+      });
+      note(`audio resume (${reason}): ${before.state} -> ${ctx.state}`);
+    } catch (e) {
+      const why = e instanceof Error ? e.message : String(e);
+      recorderRef.current.lifecycle("audio-resume", `${reason}: REJECTED (${why})`, {
+        ...before, reason, outcome: "rejected", error: why, after: ctx.state,
+      });
+      note(`audio resume REFUSED (${reason}): ${why}`);
+    }
+  }, [audioSnapshot, note]);
 
   /**
    * EVERY announcement goes through here, so nothing can be spoken — or lost —
@@ -287,12 +352,18 @@ export function RideScreen({
        * difference between a journey that speaks and one that only appears to.
        */
       ctxRef.current.addEventListener("statechange", () => {
-        const st = ctxRef.current?.state ?? "none";
-        note(`audio context -> ${st}`);
-        recorderRef.current.lifecycle("audiocontext", `${st} (visibility=${document.visibilityState})`);
+        const snap = audioSnapshot();
+        note(`audio context -> ${snap.state} (silent audio ${snap.silentAudio})`);
+        recorderRef.current.lifecycle(
+          "audiocontext",
+          `${snap.state} visibility=${snap.visibility} silentAudio=${snap.silentAudio}`,
+          snap,
+        );
       });
     }
-    if (ctxRef.current.state === "suspended") await ctxRef.current.resume();
+    // Any state that is not running gets an attempt, not just "suspended" —
+    // WebKit's "interrupted" would otherwise be skipped silently.
+    if (ctxRef.current.state !== "running") await tryResume("ensureAudio");
     if (!queueRef.current) {
       const player = new ManifestClipPlayer(manifest, ctxRef.current);
       /**
@@ -325,7 +396,7 @@ export function RideScreen({
       if (failed.length) note(`${failed.length} clips missing`);
     }
     return queueRef.current;
-  }, [buzz, manifest, note]);
+  }, [audioSnapshot, buzz, manifest, note, tryResume]);
 
   // ------------------------------------------------------- wake lock
 
@@ -361,11 +432,35 @@ export function RideScreen({
       el.loop = true;
       el.src = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAgD4AAAB9AAACABAAZGF0YQAAAAA=";
       silentAudioRef.current = el;
-      void el.play().catch(() => note("silent-audio fallback blocked until a gesture"));
+      /**
+       * THE ELEMENT PAUSING ITSELF IS THE INTERRUPTION FINGERPRINT.
+       *
+       * Nothing in this app pauses it except teardown, so a pause with no
+       * teardown in the log means an external owner took the audio session — a
+       * call, Siri, another app. A screen lock throttles the page but leaves
+       * the element playing, which is the whole reason it exists. That is the
+       * difference a state value alone cannot show.
+       */
+      el.addEventListener("pause", () => {
+        recorderRef.current.lifecycle("silent-audio", "paused", audioSnapshot());
+        note("silent audio PAUSED — session taken, or teardown");
+      });
+      el.addEventListener("play", () => {
+        recorderRef.current.lifecycle("silent-audio", "playing", audioSnapshot());
+      });
+      el.addEventListener("ended", () => {
+        // It loops, so this should never fire. If it does, the loop was broken.
+        recorderRef.current.lifecycle("silent-audio", "ended (loop broken)", audioSnapshot());
+      });
+      void el.play().catch((e) => {
+        const why = e instanceof Error ? e.message : String(e);
+        note("silent-audio fallback blocked until a gesture");
+        recorderRef.current.lifecycle("silent-audio", `play refused: ${why}`, audioSnapshot());
+      });
       note("wake lock unsupported — silent-audio fallback");
       recorderRef.current.lifecycle("wakelock", "unsupported — silent-audio fallback");
     }
-  }, [note]);
+  }, [audioSnapshot, note]);
 
   /**
    * PAGE LIFECYCLE, INSTRUMENTED.
@@ -383,8 +478,20 @@ export function RideScreen({
     recorderRef.current.lifecycle("mount");
 
     const onVisible = () => {
-      if (document.visibilityState === "visible" && engineRef.current && !wakeLockRef.current) {
-        void acquireWakeLock();
+      if (document.visibilityState !== "visible" || !engineRef.current) return;
+      if (!wakeLockRef.current) void acquireWakeLock();
+      /**
+       * MEASUREMENT, and possibly a fix — flagged because it is both.
+       *
+       * "Is there any path by which audio resumes without a gesture" is one of
+       * the open questions, and the only honest way to answer it is to try and
+       * record the answer. On iOS this is expected to reject or no-op; if it
+       * succeeds, that is the finding and the rider also gets their voice back.
+       * It cannot be gated on recording being active — that would make a
+       * recorded journey behave differently from an unrecorded one.
+       */
+      if (ctxRef.current && ctxRef.current.state !== "running") {
+        void tryResume("visibilitychange->visible");
       }
     };
     const onVisibility = () => {
@@ -422,7 +529,7 @@ export function RideScreen({
       document.removeEventListener("freeze", onFreeze);
       document.removeEventListener("resume", onResume);
     };
-  }, [acquireWakeLock]);
+  }, [acquireWakeLock, tryResume]);
 
   /**
    * Heartbeat — the second clock.

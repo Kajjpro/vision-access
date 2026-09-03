@@ -229,3 +229,23 @@ test("lifecycle events are written immediately, not at the next interval", () =>
     "the lifecycle event never reached storage",
   );
 });
+
+test("a lifecycle payload survives storage, so the analyser can compare fields", () => {
+  /**
+   * The audio discriminator lives in these fields, not in the detail string:
+   * "was the silent element still playing" is what separates a screen-lock
+   * suspension from a call taking the audio session, and re-parsing prose to
+   * answer it would be one string change away from silently classifying every
+   * interruption as a suspension.
+   */
+  const store = mem();
+  const r = createRecorder(store, { now: () => 0 });
+  r.lifecycle("audiocontext", "suspended visibility=hidden", {
+    state: "suspended", visibility: "hidden", silentAudio: "playing", wakeLock: "none",
+  });
+  const back = loadRecording(store)!;
+  const e = back.events.find((x) => x.kind === "lifecycle");
+  assert.ok(e && e.kind === "lifecycle");
+  assert.equal(e.data?.silentAudio, "playing", "the discriminating field was lost");
+  assert.equal(e.data?.state, "suspended");
+});
