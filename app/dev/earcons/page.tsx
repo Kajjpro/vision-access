@@ -15,10 +15,15 @@
  * Sighted, hands-on, one-off: this is a bench instrument, not part of the app,
  * so it is an ordinary page with buttons rather than a gesture surface.
  */
+import { notFound } from "next/navigation";
+
 import { EarconBench } from "./EarconBench";
 
 export const metadata = { title: "Earcon bench" };
 
 export default function EarconBenchPage() {
+  // Same guard as /dev/audio: a bench instrument has no business on a
+  // production build a rider might reach.
+  if (process.env.NODE_ENV === "production") notFound();
   return <EarconBench />;
 }
