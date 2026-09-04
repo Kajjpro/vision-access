@@ -9,7 +9,7 @@
 - **Whole-sentence clips, not fragment concatenation.** Two reasons, both hard blockers: (a) Mongolian numerals take attributive forms before nouns — `гурав` + `буудал` is ungrammatical, it must be `гурван буудал`; (b) concatenated fragments carry sentence-final intonation mid-sentence, which is measurably harder to parse in traffic noise. Fragment concat exists only as a marked fallback for rare slot combinations.
 - **Attributive numeral forms** (used in all count templates): 1 нэгэн · 2 хоёр · 3 гурван · 4 дөрвөн · 5 таван · 6 зургаан · 7 долоон · 8 найман · 9 есөн · 10 арван.
 - **Route-scoped preload.** Ship name-only clips for all 923 stops in the offline bundle (~5.5 MB). Fetch and pin the full template set for the active route on journey start (~240 clips, ~1.5 MB). Do not ship the full cross-product — it does not fit.
-- **Clip filenames are content-hashed**; `data/audio-manifest.json` is the source of truth. `scripts/render-audio.ts` is idempotent and diffs against the manifest.
+- **Clip filenames are the clip key** (`bus_get_off_now.opus`), not a content hash; `public/audio/transit/manifest.json` is the source of truth. `scripts/generate-transit-audio.ts` is idempotent: each entry carries a `sha` over provider + voice + text, and a clip is re-synthesized only when that changes, so a re-run costs no API quota.
 - **Missing `spokenName` in `route-names.json` must never reach speech as a raw ID.** Degrade to the generic form, warn in logs.
 
 ## Safety gate (extends the existing stop-resolve gate)
