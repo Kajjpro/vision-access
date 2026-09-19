@@ -23,8 +23,14 @@ import { useGestureNav } from "@/lib/ui/useGestureNav";
 import type { ListOption } from "@/lib/ui/gesture-nav";
 
 const WalkMode = dynamic(() => import("@/components/modes/WalkMode"), { ssr: false });
+/**
+ * Ask the Room. Loaded on demand like Walk mode — it pulls the detector, the
+ * OCR runtime and the camera, none of which a rider who only wanted a bus
+ * should pay for.
+ */
+const AskMode = dynamic(() => import("@/components/modes/AskMode"), { ssr: false });
 
-type ModeId = "walk" | "scene" | "bus" | "settings";
+type ModeId = "walk" | "ask" | "scene" | "bus" | "settings";
 
 type Mode = {
   id: ModeId;
@@ -32,15 +38,15 @@ type Mode = {
   label: string;
   position: string;
   route?: string;
-  component?: "walk";
+  component?: "walk" | "ask";
 };
 
 /** Working modes first: a user should not swipe past two dead ends to reach the bus. */
 const MODES: Mode[] = [
   { id: "walk", clip: "mode_walk", label: MODE.walk.mn, position: POSITION.topLeft.mn, component: "walk" },
+  { id: "ask", clip: "mode_scene", label: MODE.scene.mn, position: POSITION.topRight.mn, component: "ask" },
   { id: "bus", clip: "mode_bus", label: MODE.bus.mn, position: POSITION.bottomLeft.mn, route: "/bus/wait" },
-  { id: "scene", clip: "mode_scene", label: MODE.scene.mn, position: POSITION.topRight.mn },
-  { id: "settings", clip: "mode_settings", label: MODE.settings.mn, position: POSITION.bottomRight.mn },
+  { id: "settings", clip: "mode_settings", label: MODE.settings.mn, position: POSITION.bottomRight.mn, route: "/settings" },
 ];
 
 const isReady = (m: Mode) => Boolean(m.route || m.component);
@@ -170,6 +176,8 @@ export function HomeGestures() {
       nav.handlers.onTouchStart(e);
     },
   };
+
+  if (active === "ask") return <AskMode />;
 
   if (active === "walk") {
     return <WalkMode onBack={() => { setActive(null); say([SCREEN.home.clip!]); }} />;
