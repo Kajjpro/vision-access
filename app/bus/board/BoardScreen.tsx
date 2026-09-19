@@ -33,6 +33,7 @@ import { useJourney, useJourneyClock } from "@/lib/journey/useJourney";
 import { countdownFor, isStale } from "@/lib/transit/eta";
 import { haversine } from "@/lib/transit/geo";
 import { readHandoff, validateHandoff } from "@/lib/transit/handoff";
+import { journeyClipKeys } from "@/lib/transit/preload";
 import type {
   Arrival, AudioManifest, NextArrivalsResponse, RouteStops, Stop,
 } from "@/lib/transit/types";
@@ -129,10 +130,28 @@ export function BoardScreen({
     send({ type: "guidance_started", distanceToStopM: h.boardingDistanceM ?? null });
   }, [note, routeStops, send, stopsById]);
 
+  /**
+   * Narrow the preload BEFORE audio starts.
+   *
+   * The handoff names the route, so the journey's clip set is knowable without
+   * waiting for anything — and `startAudio` would otherwise decode the whole
+   * 1,065-clip manifest, which is ~400 MB of PCM on a phone. Read here rather
+   * than inside `seed()` because `startAudio` runs first.
+   */
   const start = useCallback(async () => {
+    const raw = readHandoff(sessionStorage);
+    if (raw) {
+      j.setPreloadKeys(
+        journeyClipKeys(
+          { routeId: raw.routeId, directionId: raw.directionId },
+          routeStops,
+          Object.keys(manifest),
+        ),
+      );
+    }
     await j.startAudio();
     seed();
-  }, [j, seed]);
+  }, [j, manifest, routeStops, seed]);
 
   /**
    * Arrival times for the boarding platform, refreshed while the rider waits.

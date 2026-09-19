@@ -44,6 +44,7 @@ import { AudioQueue, type Announcement, type QueueEvent } from "@/lib/transit/au
 import { ManifestClipPlayer } from "@/lib/transit/clip-player";
 import { announceTrackingDegraded, TTL, vibrationFor } from "@/lib/transit/announce";
 import { clearHandoff, readHandoff, validateHandoff, type BusHandoff } from "@/lib/transit/handoff";
+import { journeyClipKeys } from "@/lib/transit/preload";
 import {
   advanceManually, createEngine, onFix, onTick, remainingForAlighting, secondsToDestination,
   type EngineEvent, type EngineState,
@@ -443,11 +444,30 @@ export function RideScreen({
         }
       });
       queueRef.current = queue;
-      const { failed } = await player.load();
+
+      /**
+       * ROUTE-SCOPED, NEVER THE WHOLE MANIFEST.
+       *
+       * `load()` with no argument decodes all 1,065 clips. `decodeAudioData`
+       * resamples to the context rate, so that is ~400 MB of float32 PCM held
+       * resident — on the screen that also holds a GPS watch, a wake lock and a
+       * recorder, on a phone this project already fights to keep under iOS's
+       * tab limit. The tab would die and reload with no error, exactly like the
+       * detector crash in lib/vision-plan.ts.
+       *
+       * The handoff names the route, so the needed set is knowable here. See
+       * lib/transit/preload.ts — CLAUDE.md specified this and it was never done.
+       */
+      const h = readHandoff(sessionStorage);
+      const scoped = h
+        ? journeyClipKeys({ routeId: h.routeId, directionId: h.directionId }, routeStops, Object.keys(manifest))
+        : undefined;
+      const { failed } = await player.load(scoped);
+      note(scoped ? `preloaded ${scoped.length} clips for this route` : "no handoff — UI clips only");
       if (failed.length) note(`${failed.length} clips missing`);
     }
     return queueRef.current;
-  }, [audioSnapshot, buzz, manifest, note, tryResume]);
+  }, [audioSnapshot, buzz, manifest, note, routeStops, tryResume]);
 
   // ------------------------------------------------------- wake lock
 

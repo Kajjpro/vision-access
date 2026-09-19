@@ -60,6 +60,7 @@ import { present } from "@/lib/journey/present";
 import { createJourney, evidenceFor, type Journey } from "@/lib/journey/types";
 import { findNearestStop, haversine, stopsWithin } from "@/lib/transit/geo";
 import { boardingRelation, platformCalloutKeys } from "@/lib/transit/platform";
+import { browseWindowKeys } from "@/lib/transit/preload";
 import { locate as runLocate } from "@/lib/transit/locate";
 import type { NextArrivalsResponse, Route, RouteStops, Stop, StopRoutes } from "@/lib/transit/types";
 
@@ -825,12 +826,45 @@ export function WaitScreen({
     return [];
   }, [candidates, countdownOf, input, nearbyOptions, nearbyStop, now, plans, reachable, shortcuts, stopsById, voiceOff]);
 
+  /**
+   * Speak the option under the cursor, fetching its name if it is not decoded.
+   *
+   * THE LIST IS LONGER THAN ANY PRELOAD. Browsing every place reachable on one
+   * bus can run to hundreds of entries, and pinning them all would decode
+   * hundreds of megabytes of PCM. The previous version loaded the first forty
+   * and then went silent — a blind rider swiping past entry forty heard
+   * nothing at all and had no way to know why.
+   *
+   * So a window follows the cursor, and the announcement WAITS for its own clip
+   * when that clip is not there yet. Waiting a beat is recoverable; silence is
+   * indistinguishable from the end of the list.
+   */
   const announce = useCallback(
     (option: ListOption<Choice>, ctx: { wrapped: boolean }) => {
-      say([ctx.wrapped ? GESTURE.listWrapped.clip : null, ...option.keys]);
+      const prefix = ctx.wrapped ? GESTURE.listWrapped.clip : null;
+      const missing = option.keys.filter((k) => k.startsWith("stop_") && !hasClip(k));
+
+      if (missing.length === 0) {
+        say([prefix, ...option.keys]);
+        return;
+      }
+      void loadTransitClips(missing).then(() => say([prefix, ...option.keys]));
     },
     [say],
   );
+
+  /**
+   * Keep a window of names decoded around the cursor.
+   *
+   * Ahead of the cursor by more than behind it, because a list is scrolled
+   * forward far more often than back and a name that arrives late reads as the
+   * app having stopped.
+   */
+  const browseIds = useMemo(() => {
+    if (input === "browsing") return reachable.map((g) => g.stopIds[0]);
+    if (input === "destinations") return shortcuts.map((g) => g.stopIds[0]);
+    return [];
+  }, [input, reachable, shortcuts]);
 
   const onSelect = useCallback(
     (option: ListOption<Choice>) => {
@@ -839,8 +873,8 @@ export function WaitScreen({
       if (choice.kind === "browse") {
         setInput("browsing");
         say([LIST.allStopsHeading.clip]);
-        // Names are fetched before they are spoken, so the list never goes quiet.
-        void loadTransitClips(reachable.slice(0, 40).map((g) => `stop_${g.stopIds[0]}`));
+        // The first window only. The rest follows the cursor — see below.
+        void loadTransitClips(browseWindowKeys(reachable.map((g) => g.stopIds[0]), 0));
         return;
       }
       if (choice.kind === "here") {
@@ -1007,6 +1041,18 @@ export function WaitScreen({
     selected: i === nav.index,
     onActivate: () => { nav.setIndex(i); onSelect(o); },
   }));
+
+  /**
+   * Prefetch ahead of the cursor.
+   *
+   * Decoding is idempotent and already-loaded keys are skipped, so this is
+   * cheap to re-run on every move; what it buys is that the name is usually
+   * there before the swipe that asks for it.
+   */
+  useEffect(() => {
+    if (browseIds.length === 0) return;
+    void loadTransitClips(browseWindowKeys(browseIds, nav.index)).catch(() => {});
+  }, [browseIds, nav.index]);
 
   const view = useMemo(() => present(journey, now), [journey, now]);
 
