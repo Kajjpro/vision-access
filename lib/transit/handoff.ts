@@ -24,6 +24,19 @@ export type BusHandoff = {
   boardingStopId: string;
   routeDisplayName: string;
   headsign: string;
+  /**
+   * Metres from the rider's fix to the BOARDING platform, at the moment the
+   * route was chosen. Optional so a handoff written by an older build still
+   * validates.
+   *
+   * Carried because the boarding platform is routinely not the one the rider is
+   * standing at — the planner searches every platform within 400 m and picks
+   * whichever reaches the destination, and opposite platforms of one station sit
+   * a median 82 m apart (lib/transit/platform.ts). The next screen used to
+   * assume this was zero and start a countdown for a stop the rider had not
+   * reached.
+   */
+  boardingDistanceM?: number;
   createdAt: number;
 };
 

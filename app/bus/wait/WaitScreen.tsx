@@ -54,14 +54,38 @@ import {
 } from "@/lib/transit/eta";
 import { planJourney, reachableFrom, type JourneyOption } from "@/lib/transit/planner";
 import { buildHandoff, writeHandoff } from "@/lib/transit/handoff";
-import { findNearestStop, stopsWithin } from "@/lib/transit/geo";
+import { answer } from "@/lib/journey/guide";
+import { transition, type JourneyEvent } from "@/lib/journey/machine";
+import { present } from "@/lib/journey/present";
+import { createJourney, evidenceFor, type Journey } from "@/lib/journey/types";
+import { findNearestStop, haversine, stopsWithin } from "@/lib/transit/geo";
+import { boardingRelation, platformCalloutKeys } from "@/lib/transit/platform";
 import { locate as runLocate } from "@/lib/transit/locate";
 import type { NextArrivalsResponse, Route, RouteStops, Stop, StopRoutes } from "@/lib/transit/types";
 
-type Phase =
-  | "locating" | "no-location" | "no-stop"
-  | "destinations" | "listening" | "confirm-destination" | "browsing"
-  | "routes" | "no-route";
+/**
+ * INPUT MODE — not journey state. The distinction is the whole refactor.
+ *
+ * A rider speaking a destination, scrolling a list, or hearing a read-back is in
+ * ONE journey state throughout: `selecting_destination`. What differs is how
+ * this screen is taking input at that moment, and that is a property of the
+ * screen, not of the journey.
+ *
+ * Conflating them is what produced nine phases on one screen and no way to say
+ * where the rider was. The three former failure phases — `no-location`,
+ * `no-stop`, `no-route` — are gone from here entirely: they are journey FAULTS
+ * now (`journey.fault`), because they outlive this screen and the guide has to
+ * be able to answer for them from anywhere.
+ */
+type InputMode =
+  | "locating"
+  | "destinations"
+  | "listening"
+  | "confirm-destination"
+  | "browsing"
+  | "routes"
+  /** A fault is showing. The list is empty and the journey explains itself. */
+  | "blocked";
 
 /** Spoken before anything else here, so these must decode first. */
 const FIRST_CLIPS = [
@@ -134,7 +158,34 @@ export function WaitScreen({
   manifest?: unknown;
 }) {
   const router = useRouter();
-  const [phase, setPhase] = useState<Phase>("locating");
+  const [input, setInput] = useState<InputMode>("locating");
+  /**
+   * THE JOURNEY IS THE SOURCE OF TRUTH for anything that outlives this screen:
+   * which destination was confirmed, which route was chosen, and what has gone
+   * wrong. The input mode above is only about how this screen is taking input
+   * right now.
+   *
+   * This screen does not use `useJourney`. It speaks through `playSequence`,
+   * and adding an `AudioQueue` beside that would put two pipelines on one
+   * AudioContext — which CLAUDE.md forbids, because overlapping Mongolian
+   * speech is unintelligible and a rider cannot recover the message. So it
+   * drives the same pure modules with its own plumbing, exactly as the ride
+   * screen does.
+   */
+  const [journey, setJourney] = useState<Journey>(() => createJourney(Date.now()));
+
+  /**
+   * The one door into the machine, and a STABLE one.
+   *
+   * The updater form means this closes over nothing, so it never changes
+   * identity — which matters because locating and planning are long-running
+   * async callbacks, and a `send` that changed on every journey update would
+   * rebuild them mid-flight and let a stale closure drop the fault it was
+   * trying to raise.
+   */
+  const send = useCallback((event: JourneyEvent) => {
+    setJourney((current) => transition(current, event, Date.now()).journey);
+  }, []);
   const [here, setHere] = useState<{ lat: number; lon: number } | null>(null);
   const [nearbyStop, setNearbyStop] = useState<Stop | null>(null);
   /**
@@ -174,6 +225,7 @@ export function WaitScreen({
   const startedRef = useRef(false);
 
   const routesById = useMemo(() => new Map(routes.map((r) => [r.id, r])), [routes]);
+  const stopsById = useMemo(() => new Map(stops.map((st) => [st.id, st])), [stops]);
   const groups = useMemo(() => buildStopGroups(stops), [stops]);
 
   const note = useCallback((line: string) => setLog((l) => [line, ...l].slice(0, 30)), []);
@@ -241,7 +293,7 @@ export function WaitScreen({
    * See lib/transit/locate.ts.
    */
   const locate = useCallback(async () => {
-    setPhase("locating");
+    setInput("locating");
     say([SCREEN.wait.clip, WAIT.searching.clip]);
 
     const outcome = await runLocate({
@@ -255,7 +307,7 @@ export function WaitScreen({
     });
 
     if (outcome.kind === "denied" || outcome.kind === "unavailable" || outcome.kind === "timeout") {
-      setPhase("no-location");
+      setInput("blocked"); send({ type: "failed", fault: "location_unavailable" });
       note(`locate: ${outcome.kind}`);
       say([DEGRADED.location.clip]);
       return;
@@ -265,7 +317,7 @@ export function WaitScreen({
       // A signal problem, NOT a stop problem — different phrase, because the
       // useful action is to move into the open rather than to walk off looking
       // for a stop.
-      setPhase("no-location");
+      setInput("blocked"); send({ type: "failed", fault: "location_unavailable" });
       note(`locate: poor fix ±${Math.round(outcome.best.accuracyM)}m`);
       say([WAIT.gpsWeak.clip]);
       return;
@@ -281,7 +333,7 @@ export function WaitScreen({
     note(`fix ±${Math.round(fix.accuracyM)}m${outcome.converged ? " (converged)" : ""} → ${nearest.kind}`);
 
     if (nearest.kind === "unusable-fix") {
-      setPhase("no-location");
+      setInput("blocked"); send({ type: "failed", fault: "location_unavailable" });
       say([WAIT.gpsWeak.clip]);
       return;
     }
@@ -292,7 +344,7 @@ export function WaitScreen({
     setBoardingIds(reachable.map((c) => c.stop.id));
 
     if (nearest.kind === "none" || reachable.length === 0) {
-      setPhase("no-stop");
+      setInput("blocked"); send({ type: "failed", fault: "no_stop_nearby" });
       say([WAIT.noStopNearby.clip]);
       return;
     }
@@ -305,7 +357,11 @@ export function WaitScreen({
     const stop = nearest.candidates[0].stop;
     setNearbyStop(stop);
     setNearbyOptions(nearest.candidates.slice(0, 3).map((c) => c.stop));
-    setPhase("destinations");
+    setInput("destinations");
+    // A fix arrived and resolved. Clearing the fault here is what stops the
+    // guide answering "location unavailable" to a rider whose GPS came back.
+    send({ type: "recovered", to: "selecting_destination" });
+    send({ type: "destination_requested" });
 
     void loadTransitClips(nearest.candidates.slice(0, 3).map((c) => `stop_${c.stop.id}`)).then(() => {
       say([
@@ -315,7 +371,7 @@ export function WaitScreen({
         JOURNEY.askDestination.clip,
       ]);
     });
-  }, [note, say, stopRoutes, stops]);
+  }, [note, say, send, stopRoutes, stops]);
 
   const start = useCallback(async () => {
     if (startedRef.current) return;
@@ -385,11 +441,20 @@ export function WaitScreen({
       setDestination(group);
       say([JOURNEY.planning.clip]);
 
+      /**
+       * ONLY REACHED AFTER THE READ-BACK. `destination_confirmed` is not a
+       * synonym for "the rider touched something" — a misheard destination
+       * strands someone in the wrong district, so the confirmation is mandatory
+       * and this event marks that it happened.
+       */
+      const confirmed = stopsById.get(group.stopIds[0]);
+      if (confirmed) send({ type: "destination_confirmed", destination: confirmed });
+
       const options = planJourney(boardingIds, group.stopIds, routeStops, stopRoutes, routesById);
       setPlans(options);
 
       if (options.length === 0) {
-        setPhase("no-route");
+        setInput("blocked"); send({ type: "failed", fault: "no_route" });
         note(`no route from ${boardingIds.length} platforms to ${group.name}`);
         say([JOURNEY.noRoute.clip]);
         return;
@@ -399,7 +464,7 @@ export function WaitScreen({
       setHistory(next);
       saveSearchHistory(localStorage, next);
 
-      setPhase("routes");
+      setInput("routes");
       note(`${options.length} option(s), best ${options[0].legs.map((l) => l.routeDisplayName).join(" → ")}`);
 
       // "{route} хэрэгтэй. {n} буудал явна." — spoken as a plan.
@@ -433,7 +498,7 @@ export function WaitScreen({
         ]);
       });
     },
-    [boardingIds, history, note, routeStops, routesById, say, stopRoutes],
+    [boardingIds, history, note, routeStops, routesById, say, send, stopRoutes, stopsById],
   );
 
   /** Ask, listen, read back. Nothing acts on an unconfirmed recognition. */
@@ -454,7 +519,7 @@ export function WaitScreen({
       // rider with voice switched off.
       if (support.reason !== "insecure") setVoiceOff(true);
       say([VOICE.unavailable.clip]);
-      setPhase("destinations");
+      setInput("destinations");
       return;
     }
 
@@ -475,7 +540,7 @@ export function WaitScreen({
      */
     warmMicrophone();
 
-    setPhase("listening");
+    setInput("listening");
     await sayAndWait([VOICE.prompt.clip]);
 
     const outcome = await listenAnyEngine({
@@ -509,7 +574,7 @@ export function WaitScreen({
             ? VOICE.noMatch.clip
             : VOICE.notUnderstood.clip,
       ]);
-      setPhase("destinations");
+      setInput("destinations");
       return;
     }
 
@@ -525,13 +590,13 @@ export function WaitScreen({
     );
     if (matches.length === 0) {
       say([VOICE.noMatch.clip]);
-      setPhase("destinations");
+      setInput("destinations");
       return;
     }
 
     // The read-back is the safety step, so its audio must exist before it runs.
     setCandidates(matches.map((m) => m.group));
-    setPhase("confirm-destination");
+    setInput("confirm-destination");
     await loadTransitClips(matches.map((m) => `stop_${m.group.stopIds[0]}`));
     say([VOICE.didYouSay.clip, `stop_${matches[0].group.stopIds[0]}`, VOICE.confirmHint.clip]);
   }, [groups, here, history, note, say, sayAndWait]);
@@ -554,14 +619,70 @@ export function WaitScreen({
         say([DEGRADED.routeInfo.clip]);
         return;
       }
-      writeHandoff(built.handoff, sessionStorage);
+      /**
+       * Record the choice on the JOURNEY as well as in the handoff.
+       *
+       * The handoff is a serialisation for the next screen; the journey is what
+       * the guide answers from. Setting both here means a rider who long-presses
+       * between selecting a bus and the navigation completing is told which bus
+       * they picked, rather than being told nothing because the next screen has
+       * not mounted yet.
+       *
+       * The estimate travels with its EVIDENCE. `countdownOf` reads this
+       * option's own platform, and `evidenceFor` is the only thing allowed to
+       * decide whether that counts as a sighting — it never does today.
+       */
+      const boardStop = stopsById.get(leg.boardStopId);
+      const alightStop = stopsById.get(leg.alightStopId);
+      const arrival = arrivalsByStop.get(leg.boardStopId)?.arrivals
+        .find((a) => a.routeId === leg.routeId);
+
+      /**
+       * How far the rider actually is from the platform they must board at.
+       *
+       * Measured from the live fix, not assumed. The next screen decides between
+       * "you are waiting" and "you are walking" from this number, and it used to
+       * be hard-coded to zero — so a rider 200 m from the correct platform was
+       * told a bus was due at a kerb they were not standing on.
+       */
+      const boardingDistanceM = here && boardStop ? Math.round(haversine(here, boardStop)) : undefined;
+
+      if (boardStop && alightStop) {
+        send({ type: "destination_confirmed", destination: alightStop });
+        send({
+          type: "route_chosen",
+          origin: boardStop,
+          busDueAt: arrival?.arrivesAt ?? null,
+          busDueSource: arrival?.arrivesAt == null ? null : evidenceFor(arrival.source),
+          route: {
+            routeId: leg.routeId,
+            directionId: leg.directionId,
+            displayName: leg.routeDisplayName,
+            headsign: built.handoff.headsign,
+            boardingIndex: built.handoff.boardingIndex,
+            destinationIndex: leg.alightIndex,
+          },
+        });
+        send({ type: "guidance_started", distanceToStopM: boardingDistanceM ?? null });
+      }
+
+      writeHandoff({ ...built.handoff, boardingDistanceM }, sessionStorage);
       try {
         // The ride screen counts to this, so it must survive the navigation.
         sessionStorage.setItem("vision-access:alight-stop", leg.alightStopId);
       } catch { /* private mode */ }
-      router.push("/bus/ride");
+      /**
+       * TO THE GATE, NOT TO THE RIDE.
+       *
+       * This used to push straight to `/bus/ride`, which starts counting stops —
+       * so picking a bus off a list was treated as being on it, typically
+       * minutes before anything arrived. `/bus/board` holds the wait, keeps the
+       * rider informed through it, and asks whether they actually boarded before
+       * any of the ride announcements can begin. See app/bus/board/BoardScreen.
+       */
+      router.push("/bus/board");
     },
-    [note, routeStops, routesById, router, say],
+    [arrivalsByStop, here, note, routeStops, routesById, router, say, send, stopsById],
   );
 
   // ---------------------------------------------------------- options
@@ -589,14 +710,14 @@ export function WaitScreen({
   );
 
   const options: ListOption<Choice>[] = useMemo(() => {
-    if (phase === "confirm-destination") {
+    if (input === "confirm-destination") {
       return candidates.map((g) => ({
         value: { kind: "destination" as const, group: g },
         keys: [`stop_${g.stopIds[0]}`],
         label: g.name,
       }));
     }
-    if (phase === "routes") {
+    if (input === "routes") {
       return plans.map((option) => {
         const countdown = countdownOf(option, now);
         /**
@@ -634,6 +755,30 @@ export function WaitScreen({
            */
           keys: [
             `route_${option.legs[0].routeId}`,
+            /**
+             * WHICH PLATFORM, BEFORE ANYTHING ELSE ABOUT THE BUS.
+             *
+             * A named stop here is almost always two platforms — 351 pairs in
+             * the shipped data, 334 of them sharing a route — and the planner
+             * chooses whichever one actually reaches the destination. That is
+             * routinely NOT the platform the rider is standing on: the median
+             * separation is 82 m and 88% of pairs sit inside the GPS match
+             * radius, so nobody can feel the difference and nothing could sense
+             * it for them.
+             *
+             * This used to say route, stops and time and never name the stop at
+             * all. A rider at `Сансар /Урд/` was told "Ч:35, twelve stops,
+             * about five minutes" while the plan boarded at `Сансар /Хойд/`
+             * across the way — and then rode in the wrong direction.
+             *
+             * The stop clip already carries the side ("Саппоро, Урд"), so this
+             * costs no new audio. See lib/transit/platform.ts.
+             */
+            ...platformCalloutKeys(
+              stopsById.get(option.legs[0].boardStopId) ?? { id: "", name: "", lat: 0, lon: 0 },
+              boardingRelation(nearbyStop, stopsById.get(option.legs[0].boardStopId) ?? null),
+              hasClip,
+            ),
             ...stopsKeys,
             // Hedged, always, and derived against `now` rather than stored —
             // the prefix and the derivation are both structural, see eta.ts.
@@ -641,18 +786,21 @@ export function WaitScreen({
             option.transfers > 0 ? JOURNEY.transferWarning.clip : null,
           ].filter((k): k is string => Boolean(k)),
           label: `${option.legs.map((l) => l.routeDisplayName).join(" → ")} · ${option.totalStops} буудал`
-            + ` · ${describeCountdown(countdown)}`,
+            + ` · ${describeCountdown(countdown)}`
+            + (boardingRelation(nearbyStop, stopsById.get(option.legs[0].boardStopId) ?? null) !== "same_platform"
+              ? ` · ${stopsById.get(option.legs[0].boardStopId)?.name ?? ""}`
+              : ""),
         };
       });
     }
-    if (phase === "browsing") {
+    if (input === "browsing") {
       return reachable.map((g) => ({
         value: { kind: "destination" as const, group: g },
         keys: [`stop_${g.stopIds[0]}`],
         label: g.name,
       }));
     }
-    if (phase === "destinations") {
+    if (input === "destinations") {
       const head: ListOption<Choice>[] = voiceOff
         ? []
         : [{ value: { kind: "voice" }, keys: [WAIT.sayDestination.clip!], label: WAIT.sayDestination.mn }];
@@ -675,7 +823,7 @@ export function WaitScreen({
       return [...head, ...recent, ...browse, ...others];
     }
     return [];
-  }, [candidates, countdownOf, nearbyOptions, nearbyStop, now, phase, plans, reachable, shortcuts, voiceOff]);
+  }, [candidates, countdownOf, input, nearbyOptions, nearbyStop, now, plans, reachable, shortcuts, stopsById, voiceOff]);
 
   const announce = useCallback(
     (option: ListOption<Choice>, ctx: { wrapped: boolean }) => {
@@ -689,7 +837,7 @@ export function WaitScreen({
       const choice = option.value;
       if (choice.kind === "voice") { void askDestination(); return; }
       if (choice.kind === "browse") {
-        setPhase("browsing");
+        setInput("browsing");
         say([LIST.allStopsHeading.clip]);
         // Names are fetched before they are spoken, so the list never goes quiet.
         void loadTransitClips(reachable.slice(0, 40).map((g) => `stop_${g.stopIds[0]}`));
@@ -713,8 +861,8 @@ export function WaitScreen({
     announce,
     onSelect,
     onBack: () => {
-      if (phase === "routes" || phase === "no-route" || phase === "confirm-destination" || phase === "browsing") {
-        setPhase("destinations");
+      if (input === "routes" || journey.fault === "no_route" || input === "confirm-destination" || input === "browsing") {
+        setInput("destinations");
         setCandidates([]);
         say([JOURNEY.askDestination.clip]);
         return;
@@ -723,15 +871,30 @@ export function WaitScreen({
     },
     onRepeat: () => { if (lastSpokenRef.current.length) playSequence(lastSpokenRef.current, { interrupt: true }); },
     // Long press: always an immediate answer to "where am I".
-    onWhereAmI: (o) => say([
-      GESTURE.whereAmI.clip, SCREEN.wait.clip,
-      nearbyStop ? `stop_${nearbyStop.id}` : null,
-      destination ? `stop_${destination.stopIds[0]}` : null,
-      ...(o?.keys ?? []),
-    ]),
-    enabled: phase !== "locating" && phase !== "listening",
+    /**
+     * Long press: "where am I".
+     *
+     * A FAULT ANSWERS FROM THE GUIDE, so the rider gets the same phrase for the
+     * same cause wherever they are in the app — that consistency is the whole
+     * point of moving the failure states onto the journey. Otherwise this screen
+     * answers with what it alone knows: the stop under the rider and the
+     * destination they are choosing between.
+     */
+    onWhereAmI: (o) => {
+      if (journey.fault) {
+        say(answer(journey, "help", hasClip, Date.now()).keys);
+        return;
+      }
+      say([
+        GESTURE.whereAmI.clip, SCREEN.wait.clip,
+        nearbyStop ? `stop_${nearbyStop.id}` : null,
+        destination ? `stop_${destination.stopIds[0]}` : null,
+        ...(o?.keys ?? []),
+      ]);
+    },
+    enabled: input !== "locating" && input !== "listening",
     // A new list starts at the top — see resetKey in useGestureNav.
-    resetKey: phase,
+    resetKey: input,
   });
 
   /**
@@ -744,7 +907,7 @@ export function WaitScreen({
    * numbers stay true for as long as someone is actually waiting.
    */
   useEffect(() => {
-    if (phase !== "routes") return;
+    if (input !== "routes") return;
     const stopIds = [...new Set(plans.map((p) => p.legs[0].boardStopId))].slice(0, MAX_ARRIVAL_STOPS);
     if (stopIds.length === 0) return;
 
@@ -778,7 +941,7 @@ export function WaitScreen({
     load();
     const timer = setInterval(load, ARRIVALS_REFRESH_MS);
     return () => { cancelled = true; clearInterval(timer); };
-  }, [note, phase, plans, say]);
+  }, [input, note, plans, say]);
 
   /**
    * The countdown clock, ticking only while there is a countdown to show.
@@ -788,10 +951,10 @@ export function WaitScreen({
    * ear can hear.
    */
   useEffect(() => {
-    if (phase !== "routes") return;
+    if (input !== "routes") return;
     const timer = setInterval(() => setNow(Date.now()), COUNTDOWN_TICK_MS);
     return () => clearInterval(timer);
-  }, [phase]);
+  }, [input]);
 
   /**
    * THE WAIT, NARRATED — the countdown speaks up as it changes.
@@ -814,7 +977,7 @@ export function WaitScreen({
   const watched = useRef<{ key: string; countdown: Countdown } | null>(null);
 
   useEffect(() => {
-    if (phase !== "routes") { watched.current = null; return; }
+    if (input !== "routes") { watched.current = null; return; }
     const option = plans[nav.index];
     if (!option) { watched.current = null; return; }
 
@@ -837,7 +1000,7 @@ export function WaitScreen({
       vibrate(DUE_VIBRATION);
       say([`route_${option.legs[0].routeId}`, ...countdownKeys(countdown, hasClip)]);
     }
-  }, [countdownOf, nav.index, note, now, phase, plans, playEarcon, say]);
+  }, [countdownOf, input, nav.index, note, now, plans, playEarcon, say]);
 
   const a11yOptions: A11yOption[] = options.map((o, i) => ({
     label: o.label,
@@ -845,17 +1008,28 @@ export function WaitScreen({
     onActivate: () => { nav.setIndex(i); onSelect(o); },
   }));
 
+  const view = useMemo(() => present(journey, now), [journey, now]);
+
   const handlers = {
     ...nav.handlers,
     onTouchStart: (e: React.TouchEvent) => { void start(); nav.handlers.onTouchStart(e); },
   };
 
+  /**
+   * What the screen says it is doing.
+   *
+   * A FAULT ALWAYS WINS, and it comes from the journey — one phrase per cause,
+   * chosen by `present()`, so "no stop nearby" and "location unavailable" can
+   * never collapse into one message. They send a rider to opposite actions:
+   * walk somewhere else, or stand still under open sky.
+   *
+   * Otherwise the title is the input mode, because that is genuinely what
+   * differs — the journey is `selecting_destination` throughout.
+   */
   const title =
-    phase === "locating" ? WAIT.searching.mn
-    : phase === "listening" ? VOICE.listening.mn
-    : phase === "no-stop" ? WAIT.noStopNearby.mn
-    : phase === "no-location" ? DEGRADED.location.mn
-    : phase === "no-route" ? JOURNEY.noRoute.mn
+    journey.fault ? view.headline
+    : input === "locating" ? WAIT.searching.mn
+    : input === "listening" ? VOICE.listening.mn
     : nav.current?.label ?? JOURNEY.askDestination.mn;
 
   return (

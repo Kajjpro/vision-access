@@ -31,9 +31,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { CurrentOption, GestureSurface, type A11yOption } from "@/components/GestureSurface";
+import { JourneySurface, type SurfaceEntry } from "@/components/navigation/JourneySurface";
+import { assistantMenu } from "@/lib/journey/assistant";
+import { answer, answerStopsLeft, type GuideQuestion } from "@/lib/journey/guide";
+import { transition, type JourneyEvent } from "@/lib/journey/machine";
+import { pace } from "@/lib/journey/pacer";
+import { present } from "@/lib/journey/present";
+import { loadSettings } from "@/lib/journey/settings";
+import { createJourney, type Journey } from "@/lib/journey/types";
+import { useJourneyClock } from "@/lib/journey/useJourney";
 import { AudioQueue, type Announcement, type QueueEvent } from "@/lib/transit/audio-queue";
 import { ManifestClipPlayer } from "@/lib/transit/clip-player";
-import { announceStatus, announceTrackingDegraded, TTL, vibrationFor } from "@/lib/transit/announce";
+import { announceTrackingDegraded, TTL, vibrationFor } from "@/lib/transit/announce";
 import { clearHandoff, readHandoff, validateHandoff, type BusHandoff } from "@/lib/transit/handoff";
 import {
   advanceManually, createEngine, onFix, onTick, remainingForAlighting, secondsToDestination,
@@ -81,6 +90,25 @@ export function RideScreen({
   const [sequence, setSequence] = useState<OrderedStop[]>([]);
   const [destIndex, setDestIndex] = useState<number | null>(null);
   const [engine, setEngine] = useState<EngineState | null>(null);
+  /**
+   * THE JOURNEY IS WHAT THIS SCREEN RENDERS AND ANSWERS FROM.
+   *
+   * The engine still owns the hard part — projection, confidence, the advance
+   * and backward-jump rules — and none of that moved. What moved is everything
+   * ABOVE it: the title, the option list, the long-press answer and the state a
+   * rider is told they are in used to be assembled here from `destIndex`,
+   * `remaining` and `handoff`, which is why the same question got a different
+   * answer on this screen than on the waiting one. Now the engine feeds the
+   * journey and the journey feeds the UI.
+   *
+   * This screen does NOT use `useJourney`: it owns an audio pipeline with page
+   * lifecycle and interruption instrumentation, and a second AudioQueue would
+   * mean two queues talking over each other. Same pure modules, its own
+   * plumbing.
+   */
+  const [journey, setJourney] = useState<Journey>(() => createJourney(Date.now()));
+  /** Ticks every 10 s so anything time-derived re-renders without an impure read. */
+  const now = useJourneyClock();
   const [degraded, setDegraded] = useState(false);
   const [log, setLog] = useState<string[]>([]);
 
@@ -304,6 +332,29 @@ export function RideScreen({
    * Returns the destination index so the caller can begin tracking in the same
    * turn, without waiting for state to settle.
    */
+  /**
+   * The one door into the machine. A rejected event is logged and discarded —
+   * GPS fixes keep arriving after the rider has moved on, and the machine
+   * returning a reason rather than throwing is what lets them pass harmlessly.
+   */
+  const send = useCallback((event: JourneyEvent) => {
+    setJourney((current) => {
+      const result = transition(current, event, Date.now());
+      if (!result.applied) note(`ignored ${event.type}: ${result.rejected}`);
+      return result.journey;
+    });
+  }, [note]);
+
+  const journeyRef = useRef(journey);
+  useEffect(() => { journeyRef.current = journey; }, [journey]);
+
+  /** Answers the rider from the journey, never from this screen's own state. */
+  const ask = useCallback((question: GuideQuestion) => {
+    const j = journeyRef.current;
+    const short = question === "stops_left" ? answerStopsLeft(j, has, Date.now()) : null;
+    enqueue(short ?? answer(j, question, has, Date.now()));
+  }, [enqueue, has]);
+
   const loadHandoff = useCallback((): { sequence: OrderedStop[]; destIndex: number | null; handoff: BusHandoff } | null => {
     const h = readHandoff(sessionStorage);
     if (!h) { setHandoffError("Чиглэл сонгоогүй байна"); return null; }
@@ -643,6 +694,18 @@ export function RideScreen({
       const destination = sequence[dest];
       if (!destination) return;
 
+      /**
+       * ONE NUMBER, TWO CHANNELS. The count the ladder speaks and the count the
+       * screen shows are the same value from the same call — they used to be
+       * computed separately, which is how a screen and a voice come to disagree
+       * about how far a rider has left to go.
+       */
+      send({
+        type: "position_updated",
+        remainingStops: remaining,
+        etaSeconds: secondsToDestination(state, geometry, dest),
+      });
+
       const announcement = alightingAnnouncement(
         {
           remaining,
@@ -663,7 +726,7 @@ export function RideScreen({
         note(`say: ${announcement.label ?? announcement.keys.join(" ")}`);
       }
     },
-    [buzz, enqueue, has, note, sequence],
+    [buzz, enqueue, has, note, send, sequence],
   );
 
   // ------------------------------------------------------------ start
@@ -682,6 +745,37 @@ export function RideScreen({
       engineRef.current = initial;
       setEngine(initial);
       setDestIndex(dest);
+
+      /**
+       * Seed the journey. `boarding_answered` is sent because reaching this
+       * screen at all means the gate on `/bus/board` was passed — the rider
+       * said they were on the bus. Nothing here may assume it; it is being
+       * recorded, not decided.
+       */
+      const destinationStop = seq[dest];
+      if (destinationStop) {
+        const originStop = seq[h.boardingIndex];
+        send({ type: "destination_requested" });
+        send({ type: "destination_confirmed", destination: destinationStop });
+        send({
+          type: "route_chosen",
+          origin: originStop ?? destinationStop,
+          busDueAt: null,
+          busDueSource: null,
+          route: {
+            routeId: h.routeId,
+            directionId: h.directionId,
+            displayName: h.routeDisplayName,
+            headsign: h.headsign,
+            boardingIndex: h.boardingIndex,
+            destinationIndex: dest,
+          },
+        });
+        send({ type: "guidance_started", distanceToStopM: 0 });
+        send({ type: "boarding_question_raised", reason: "due" });
+        send({ type: "boarding_answered", answer: "boarded" });
+      }
+
       lastSpokenRef.current = null;
       downgradeAnnouncedRef.current = false;
       boardingRef.current = createBoardingState();
@@ -804,7 +898,7 @@ export function RideScreen({
         { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 },
       );
     },
-    [acquireWakeLock, buzz, ensureAudio, handleEngineEvents, handoff, has, nearestIsOnVariant, note, push, sequence, speakLadder],
+    [acquireWakeLock, buzz, ensureAudio, handleEngineEvents, handoff, has, nearestIsOnVariant, note, push, send, sequence, speakLadder],
   );
 
   /**
@@ -839,16 +933,33 @@ export function RideScreen({
    * begins here and the user is never asked again. Otherwise the destination
    * picker is the option list and `beginTracking` runs on their selection.
    */
+  /**
+   * Guidance settings, applied on the first gesture.
+   *
+   * Read here rather than in a mount effect: localStorage does not exist during
+   * SSR, and a level the rider chose in settings has to reach the pacer or the
+   * choice was cosmetic.
+   */
+  const applySettings = useCallback(() => {
+    const settings = loadSettings();
+    setJourney((j) => ({
+      ...j,
+      guidanceLevel: settings.level,
+      heartbeatEnabled: settings.heartbeat,
+    }));
+  }, []);
+
   const start = useCallback(async () => {
     if (startedRef.current) return;
     startedRef.current = true;
     armFieldTest();
+    applySettings();
     await ensureAudio();
     const loaded = loadHandoff();
     if (loaded?.destIndex != null) {
       void beginTracking(loaded.destIndex, loaded.sequence, loaded.handoff);
     }
-  }, [armFieldTest, beginTracking, ensureAudio, loadHandoff]);
+  }, [applySettings, armFieldTest, beginTracking, ensureAudio, loadHandoff]);
 
   // ---------------------------------------------------------- teardown
 
@@ -883,57 +994,59 @@ export function RideScreen({
     if (ctxRef.current && ctxRef.current.state !== "closed") void ctxRef.current.close().catch(() => {});
   }, []);
 
+  /**
+   * THE EXIT QUESTION — the second half of the boarding gate.
+   *
+   * The app cannot see a rider step off a bus any more than it can see them step
+   * on. So arrival does not end the journey: it raises a question, and the
+   * journey stays open until the rider answers it.
+   *
+   * Raised on a short delay after the ladder speaks rung 0, never at the same
+   * moment. "Одоо буугаарай" is `critical` and preempts; a question landing on
+   * top of it would cut off the instruction that actually matters, and the
+   * rider would be left with a half-spoken sentence and a question about it.
+   */
+  useEffect(() => {
+    if (journey.state !== "approaching_destination") return;
+    if (journey.remainingStops === null || journey.remainingStops > 0) return;
+    const timer = setTimeout(() => send({ type: "exit_question_raised" }), 6_000);
+    return () => clearTimeout(timer);
+  }, [journey.remainingStops, journey.state, send]);
+
+  /**
+   * The pacer, offered a turn. It declines most of them.
+   *
+   * The queue's status goes in so a heartbeat is DROPPED rather than queued
+   * behind a real announcement — a tone half a second after "three stops
+   * remaining" tells the rider something they have just been shown.
+   */
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const queue = queueRef.current;
+      if (!queue) return;
+      const status = { speaking: queue.isPlaying, pending: queue.pending };
+      for (const a of pace(journeyRef.current, Date.now(), status)) enqueue(a);
+    }, 15_000);
+    return () => clearInterval(timer);
+  }, [enqueue]);
+
+
   // ---------------------------------------------------------- options
 
-  const remaining = engine && destIndex !== null ? remainingForAlighting(engine, destIndex) : null;
 
-  const options: ListOption<Action>[] = useMemo(() => {
-    // Before tracking starts, the list is the destination picker — only reached
-    // when the wait screen did not already choose one.
-    if (destIndex === null && handoff) {
-      return sequence
-        .map((s, i) => ({ s, i }))
-        .filter(({ s, i }) => i > handoff.boardingIndex && s.name.trim())
-        .map(({ s, i }) => ({
-          value: { kind: "destination" as const, index: i },
-          keys: [`stop_${s.id}`],
-          label: `${s.name} · ${i - handoff.boardingIndex} буудлын дараа`,
-        }));
-    }
-    const base: ListOption<Action>[] = [
-      { value: { kind: "advance" }, keys: [RIDE.manualAdvance.clip!], label: RIDE.manualAdvance.mn },
-      { value: { kind: "finish" }, keys: [RIDE.finish.clip!], label: RIDE.finish.mn },
-    ];
-    if (showFieldTest) {
-      base.push(
-        { value: { kind: "record" }, keys: [], label: armed ? "Бичлэг зогсоох" : "Бичлэг эхлүүлэх" },
-        { value: { kind: "share" }, keys: [], label: "Бичлэг илгээх" },
-      );
-    }
-    return base;
-  }, [armed, destIndex, handoff, sequence, showFieldTest]);
 
   const say = useCallback((keys: (string | null)[], label: string) => push(keys, label, "normal"), [push]);
 
-  const statusNow = useCallback(() => {
-    const current = engineRef.current;
-    const at = current ? sequence[current.stopIndex] ?? null : null;
-    const target = destIndex !== null ? sequence[destIndex] ?? null : null;
-    const left = current && destIndex !== null ? remainingForAlighting(current, destIndex) : null;
-
-    // Built in lib/transit/announce.ts, so the overshot-rider path is covered by
-    // the suite rather than by inspection of a screen that has no tests.
-    enqueue(
-      announceStatus(
-        {
-          at, destination: target, remaining: left,
-          statusPrefixKey: JOURNEY.statusPrefix.clip!,
-          stopsRemainingKey: RIDE.stopsRemaining.clip!,
-        },
-        has,
-      ),
-    );
-  }, [destIndex, enqueue, has, sequence]);
+  /**
+   * The full status, from the journey rather than from this screen's own state.
+   *
+   * It used to be assembled here from `destIndex`, `sequence` and the engine,
+   * which meant the same question got a differently-shaped answer depending on
+   * which screen the rider was on. `guide.answer` delegates the overshoot case
+   * to `announceStatus` exactly as this did, so nothing regressed — it simply
+   * has one caller now instead of three implementations.
+   */
+  const statusNow = useCallback(() => ask("status"), [ask]);
 
   /**
    * Manual advance, clamped at the destination.
@@ -1022,77 +1135,150 @@ export function RideScreen({
     note(next ? "recording ARMED — restart the journey to capture it" : "recording disarmed");
   }, [note]);
 
-  const nav = useGestureNav<Action>({
-    options,
+  /**
+   * The rows this screen adds beyond the journey's own.
+   *
+   * The manual advance and the field-test controls are machinery, not journey
+   * state, so they live here rather than in `present()` — and they are appended
+   * AFTER the journey's actions so the primary one stays first and stays the
+   * thing a rider hears without swiping. `JourneySurface` drops them entirely
+   * while a question is open.
+   */
+  const extraActions: SurfaceEntry[] = useMemo(() => {
+    if (destIndex === null) return [];
+    const rows: SurfaceEntry[] = [
+      { id: "advance", keys: [RIDE.manualAdvance.clip!], label: RIDE.manualAdvance.mn },
+      { id: "finish", keys: [RIDE.finish.clip!], label: RIDE.finish.mn },
+    ];
+    if (showFieldTest) {
+      rows.push(
+        { id: "record", keys: [], label: armed ? "Бичлэг зогсоох" : "Бичлэг эхлүүлэх" },
+        { id: "share", keys: [], label: "Бичлэг илгээх" },
+      );
+    }
+    return rows;
+  }, [armed, destIndex, showFieldTest]);
+
+  /**
+   * The destination picker, only reached when the wait screen did not choose
+   * one. A pre-journey list, so it replaces the surface rather than sitting
+   * inside it.
+   */
+  const pickerOptions: ListOption<Action>[] = useMemo(() => {
+    if (destIndex !== null || !handoff) return [];
+    return sequence
+      .map((st, i) => ({ st, i }))
+      .filter(({ st, i }) => i > handoff.boardingIndex && st.name.trim())
+      .map(({ st, i }) => ({
+        value: { kind: "destination" as const, index: i },
+        keys: [`stop_${st.id}`],
+        label: `${st.name} · ${i - handoff.boardingIndex} буудлын дараа`,
+      }));
+  }, [destIndex, handoff, sequence]);
+
+  const pickerNav = useGestureNav<Action>({
+    options: pickerOptions,
     announce: (option, ctx) => say([ctx.wrapped ? GESTURE.listWrapped.clip : null, ...option.keys], option.label),
     onSelect: (option) => {
       const a = option.value;
-      if (a.kind === "destination") { void beginTracking(a.index); return; }
-      if (a.kind === "advance") { manualAdvanceClamped(); return; }
-      if (a.kind === "record") { toggleRecording(); return; }
-      if (a.kind === "share") { void shareRecording(); return; }
-      if (a.kind === "finish") {
-        void teardown().then(() => { clearHandoff(sessionStorage); router.push("/"); });
-      }
+      if (a.kind === "destination") void beginTracking(a.index);
     },
     onBack: () => { void teardown().then(() => router.push("/")); },
-    onRepeat: () => {
-      // Repeat is the same answer as "where am I" here — there is only ever one
-      // thing worth re-hearing on this screen.
-      statusNow();
-    },
-    /**
-     * Long press: the full status, immediately, whatever else is happening.
-     *
-     * Critical priority so it preempts a queued stop name — a user who asks
-     * where they are is asking NOW, usually because they think something has
-     * gone wrong.
-     */
+    onRepeat: () => statusNow(),
     onWhereAmI: () => statusNow(),
-    // A new list starts at the top — see resetKey in useGestureNav.
-    resetKey: destIndex === null ? "picker" : "riding",
+    enabled: destIndex === null,
+    resetKey: "picker",
   });
 
-  const a11yOptions: A11yOption[] = options.map((o, i) => ({
-    label: o.label, selected: i === nav.index,
-    onActivate: () => { nav.setIndex(i); },
+  const act = useCallback((id: string) => {
+    switch (id) {
+      case "advance":
+        manualAdvanceClamped();
+        return;
+      case "record":
+        toggleRecording();
+        return;
+      case "share":
+        void shareRecording();
+        return;
+      case "exited":
+        // The journey ends on the rider's word, not on a coordinate.
+        send({ type: "exit_answered", exited: true });
+        void teardown().then(() => { clearHandoff(sessionStorage); router.push("/"); });
+        return;
+      case "not_yet":
+        send({ type: "exit_answered", exited: false });
+        return;
+      case "finish":
+      case "stop_guidance":
+        void teardown().then(() => { clearHandoff(sessionStorage); router.push("/"); });
+        return;
+      case "find_other":
+        void teardown().then(() => router.push("/bus/wait"));
+        return;
+      default:
+        note(`unhandled action ${id}`);
+    }
+  }, [manualAdvanceClamped, note, router, send, shareRecording, teardown, toggleRecording]);
+
+  const view = useMemo(() => present(journey, now), [journey, now]);
+  const assistant = useMemo(() => assistantMenu(journey), [journey]);
+
+  const pickerA11y: A11yOption[] = pickerOptions.map((o, i) => ({
+    label: o.label,
+    selected: i === pickerNav.index,
+    onActivate: () => { pickerNav.setIndex(i); void beginTracking(o.value.kind === "destination" ? o.value.index : 0); },
   }));
 
-  const handlers = {
-    ...nav.handlers,
-    onTouchStart: (e: React.TouchEvent) => { void start(); nav.handlers.onTouchStart(e); },
+  const pickerHandlers = {
+    ...pickerNav.handlers,
+    onTouchStart: (e: React.TouchEvent) => { void start(); pickerNav.handlers.onTouchStart(e); },
   };
 
   if (handoffError) {
     return (
-      <GestureSurface handlers={handlers} options={[]}>
+      <GestureSurface handlers={pickerHandlers} options={[]}>
         <CurrentOption title="Алдаа" detail={handoffError} />
       </GestureSurface>
     );
   }
 
-  const title = (remaining !== null && remaining < 0)
-    ? RIDE.passedStop.mn
-    : remaining !== null
-      ? `${remaining} ${RIDE.stopsRemaining.mn}`
-      : nav.current?.label ?? SCREEN.ride.mn;
+  // Before a destination is chosen there is no journey to present, so the picker
+  // stands on its own rather than being squeezed into the journey layout.
+  if (destIndex === null) {
+    return (
+      <GestureSurface
+        handlers={pickerHandlers}
+        options={pickerA11y}
+        onFocusOption={(i) => { void start(); pickerNav.setIndex(i); }}
+      >
+        <CurrentOption
+          title={pickerNav.current?.label ?? SCREEN.destination.mn}
+          detail={handoff?.routeDisplayName}
+          position={pickerOptions.length ? `${pickerNav.index + 1} / ${pickerOptions.length}` : undefined}
+        />
+      </GestureSurface>
+    );
+  }
 
   return (
-    <GestureSurface
-      handlers={handlers}
-      options={a11yOptions}
-      onFocusOption={(i) => { void start(); nav.setIndex(i); }}
-    >
-      <CurrentOption
-        title={title}
-        detail={destIndex !== null ? sequence[destIndex]?.name : handoff?.routeDisplayName}
-        position={[degraded ? "GPS сул" : null, recordingActive ? "● REC" : null]
-          .filter(Boolean).join(" · ") || undefined}
-      />
-      <details style={{ position: "absolute", bottom: 6, left: 6, fontSize: 11, color: "#333" }}>
-        <summary>debug</summary>
-        <pre style={{ whiteSpace: "pre-wrap" }}>{log.join("\n")}</pre>
-      </details>
-    </GestureSurface>
+    <JourneySurface
+      journey={journey}
+      view={view}
+      assistant={assistant}
+      log={log}
+      onAsk={ask}
+      onRepeat={statusNow}
+      onAnnounceOption={(keys, label) => say(keys, label)}
+      onAction={act}
+      onBack={() => { void teardown().then(() => router.push("/")); }}
+      onStart={start}
+      extraActions={extraActions}
+      extraDebug={[
+        degraded ? "GPS сул" : null,
+        recordingActive ? "● REC" : null,
+        engine ? `engine idx ${engine.stopIndex} · ${engine.confidence}` : null,
+      ].filter(Boolean).join(" · ")}
+    />
   );
 }
