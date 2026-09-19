@@ -1,0 +1,562 @@
+{
+  "person": {
+    "sha": "78643f10cbc40b9b907c24dfa4c2fc3c1c8f76d7503e4dddb327eb2b3024265d",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "child": {
+    "sha": "392bbd491a08b0c2f143391b6cb748bf4b56384bf71c4d1d7ab3a9ceff89c1d5",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "dog": {
+    "sha": "49c9c9e149d71522a2ed352f01888e7bb7f5bab4120ebcbc1847dad7907b6cb2",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "cat": {
+    "sha": "624168d6877f74d5fb79c479f04f177bdcea5da52b11c29c42b55d4161a2ed48",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "horse": {
+    "sha": "387376e0063678d39b05ca219e3614ced211b497774ae66365b8006afa499644",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "cow": {
+    "sha": "fae2ac463338f8a126d30a466eba3c89797d34fa20dfaabaee0f242e2f1a2912",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "bird": {
+    "sha": "b08467757f6df531d7c6c6cce0c131c825ffbfef40542912c6b045c184b38965",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "sheep": {
+    "sha": "84cfab498f6070e56c9855b6e2be1bd85f867101e252ce2a749964a73b804e8c",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "goat": {
+    "sha": "f562ed8adaad8aff2f7dd6e038e0626776a0c162d8c94ff68d8eb4c71f101bbb",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "car": {
+    "sha": "d2905ab16a2ae8a791e267ec0d462200b30d032b7d2ec145b72686339e4df61e",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "bus": {
+    "sha": "dc374c2904488ad7f291f3c286fcd7d06fbe10d7f4c1a0db5a76757f91fb8c0e",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "truck": {
+    "sha": "6e2164294d29dfe45a851ac9ebe1d3f5725ca51d3f345087f29cc286aa92f9f1",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "motorcycle": {
+    "sha": "80f5f638b470fd107c1c0bf23f9babc598754eca09f8239d1e7eb3541c695abc",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "bicycle": {
+    "sha": "b10907d0e68493dbbdfb239e77cf930e14fc7a1d23da83c8c7a1285b708ca8a4",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "scooter": {
+    "sha": "b7fb4e744cfadae9a0ee2d52a8b68c8000e5b79f93c45bd1bee35506692a5d84",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "kick_scooter": {
+    "sha": "32220a02ba7583353d348b2979976d391eb99687595ad01a36279c7cd552bf17",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "cart": {
+    "sha": "7b4c5b30c8ff1dd804033f85f7b6e503ee2f9487a8e262f5f4bd897aab33a9c9",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "stroller": {
+    "sha": "8048e611408efbb869fbff03674e80e8de64392a6b73c6434dab3d24ba7cf655",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "wheelchair": {
+    "sha": "c00096d63b497e9008f8de8b67fe243e89e4d7b8ee6b583ce2c1ec25c00aaae3",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "pole": {
+    "sha": "d4763838591bed4e3a090d4677a3ef143619af82c93ab971068eab031ea9b453",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "tree": {
+    "sha": "af86627df35f7d7e729344a599d1bec3f120f1bec9070a8bee35a3fd6fe49591",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "hedge": {
+    "sha": "1598b6e6de570daf189be529f7a85efccb2825c9907f4a5a371a38f52f02de01",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "wall": {
+    "sha": "2d57b95165ba4b0461094c9fd37553b8c8913c79afe4331206bed1dff98753a7",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "fence": {
+    "sha": "4c671a281d733b57ac72a4ba95a7ed707ed5f6db7e35d00247b95ccf6646a4ee",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "door": {
+    "sha": "abcc62c62407b89b6a2985d44123cd5b17c296ff2e585980da984d2ec524b7ce",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "glass_door": {
+    "sha": "cbabeac07d6a8e6289bdbd520d9b0c02bb22e16236bc51d20f70f26fbb2be2fe",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "window": {
+    "sha": "9f4716b53314d8e465aac36a274c7254adcd7f488a7a3dcf9471aa238410ebc2",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "stairs": {
+    "sha": "546795f86abec893cb965411878a93f384326ea9c48ba262cd71ab2ffa44158a",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "step": {
+    "sha": "b239f9cabcc2f4a21c625096981620bb62b3a08d2ed1084afeac4dd8ffbc5763",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "ladder": {
+    "sha": "122b1ee017b1225aafcc15484cb906152925beaf77991ea370af90e11c06d49d",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "bench": {
+    "sha": "6f7f44178d1660ed4e4a33b695995f19fe2057313197b44656d9d2d41c36d0a3",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "table": {
+    "sha": "679b680317db3366d31d74bd6b6a07ae07bfbf978a9a69df89d6ea5f4b02708d",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "trash_can": {
+    "sha": "5bf17ba23ffe77bc5844ed3458fbf5b357e5012bdaac40a9b5c97572e7a44e18",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "dumpster": {
+    "sha": "6386534cfe44546b87c7b6704bbd87677e85d10ed87a3417d15c2fa0828e6bda",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "traffic_light": {
+    "sha": "09068a8bb1066d198564563706302560e3111d4b96862cdd57960c148547831b",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "sign": {
+    "sha": "435e5df9d9b8d7d3ffb1d24b145ffef8c9a81c76f8845bde63a23eda5ea366b4",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "bridge": {
+    "sha": "0a21b3fe14d9fe7ca13bf3d2ee36c78b4f241e4322b938641e5434167679f7d1",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "curb": {
+    "sha": "2a39f4091ef0bed597e100cc69b8b67acf4724cd1cfa87c298fbfeb9f661b13c",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "bollard": {
+    "sha": "74690e30099cc8f7d0fe167e4630ca8a2df838bc7989c253664b62dd91139452",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "fire_hydrant": {
+    "sha": "19afc3ab107588b444ba116e0c447b83837b630f6f403be0f17fab3b203dc8ac",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "planter": {
+    "sha": "a58943e48b070947f3b389d8cfd671dfa7ca9a0f1f601128a266b3ebc643f631",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "kiosk": {
+    "sha": "d3ecbb90e2404d2266e2c37d7b9c1a2d95ac4a928d0cd3e5eb4fe4345ae71a6a",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "awning": {
+    "sha": "1359187d58d7c72678c536410f8c7468d62bf8de0e948cdd5e4b8df533966207",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "bus_stop": {
+    "sha": "f12df1627bbe6e14a8593032593c430bb7dcfcd88f55902c63297e127441a3d2",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "barrier": {
+    "sha": "5745db43200130f52288518bb730a334f5137bb5ae31872e594b9f340a2880b1",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "boxes": {
+    "sha": "4beaae9e5701e90df1d6a54997cdb037563b33ff23308443887c359be638bd13",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "luggage": {
+    "sha": "1a926aa658c911ba52fcd7aa6090a07977ffa6f3186205c65228600b265693e2",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "scaffolding": {
+    "sha": "ef3942109f1344da4a21edc9d018adebdc096ed83dfa0240caa2d666338d5b70",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "cable": {
+    "sha": "e49f5ec4e1067110f87be3e49ebd969a811f60b2c59260b7e843fc47a8d5b3cc",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "umbrella": {
+    "sha": "36b6162c92aea9977f84b8f3c9ffd39994f394ba8e2ca4c5ce3334e99534d8ef",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "hole": {
+    "sha": "4bba3ccc3051e3f27715c38d23134e0475a83f6164f3f0a5f87f332aca7e6568",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "manhole": {
+    "sha": "90de552c7f1d7a607914baf6b431fab38da338a6886b84ec1fb6ed37ba018d63",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "puddle": {
+    "sha": "9799b43697a04c6643d78025975fecad3e5f5428af0303195c611cc090f45368",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "ice": {
+    "sha": "04751dc8d20bac52564124043aef4d666abf540e5150d3a1793b96ad91f00c69",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "snow_pile": {
+    "sha": "27e95bc9ee3b1d3057d5769e30a2e8ea84f7ec8c39ee2ce7059e2f5233ca76b3",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "rock": {
+    "sha": "ce4c2c513dff866d0d6b03cdebcedc0624d8e52bdc110e2414b5a076b87d8857",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "crosswalk": {
+    "sha": "c28f392120a00cd16bde8c58f12cb24fe7eab4b627930a7f496c16d7aff41c07",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "speed_bump": {
+    "sha": "be8d2cd21cdbd4377ed7109279a6df4a49798ec0a54cdaebbc1b70cf94a5ba3b",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "ramp": {
+    "sha": "7e39245ca4ba15ff22b3a29c77d5f2bc306d04897fc22a4e539a2998c4581e15",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "cone": {
+    "sha": "497b00712bf0c548c1691b8bc0342585b3b362778c6a523e17c4ab844579f9b9",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "very_close": {
+    "sha": "fdbfb247995b20da26f18808b21c627d633b43bc7bebff021330734d05510136",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "approx": {
+    "sha": "68b27d941f595d9dad08b08c76bb895d39d997a5258a00e67decc3068a351068",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "m_2": {
+    "sha": "20555a4c641d9fa6f4ccc12e1193a1432c2e246fb53b3721a443363c25c0b00c",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "m_3": {
+    "sha": "541905fc5f70caa62f76a19e1507929a260ca968ec65660d5a01321352fcf7d2",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "m_4": {
+    "sha": "65b9f4c8ab822dc499c676b0d18ae9930ab358c538b1d97792d6022300c342a1",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "m_5": {
+    "sha": "95c0274032d3148485bd0bf2e9170a28b57e138fc2c681fdb894026d82d943cd",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "d_30cm": {
+    "sha": "4128addd8906fee7e450bfebbb909e0316edb3c3a647152d8d99bd935fd8ba05",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "d_50cm": {
+    "sha": "0c77fddb7d08d574c77e87495f2024624206f172977b9de98b70358459375ce1",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "d_70cm": {
+    "sha": "9fd36cd0072af4dba31f28fbfa2e9b6e18c9ad9a72600bae024aafd8e0fd44a0",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "d_1m": {
+    "sha": "d3a7497e389236ede93c44abcc6ed3cd06dfd6fe5537e90f2ef6d8eab91aa085",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "d_2m": {
+    "sha": "7dc07c6ce239487f0ab8bffef3f136a904a76004c2b76c2c3239415b33c35560",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "d_3m": {
+    "sha": "0dadc2ce1d8247bfdeceb016e66bce36fb7566ea204a72c2b19a8e62d6fbb1d8",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "d_5m": {
+    "sha": "293eeafd31b238f3c3fd4ae1c9ffb33c6c87b7bf7cd8106ad8ff204771d68dcf",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "d_10m": {
+    "sha": "db3ce75dfeb1efb2b62cea323244996ae7a0197d2f537fa63700a8624ed2a034",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "d_far": {
+    "sha": "858cc369fd246931d9b05a4329df670265683e3b24c296b0e3720eee5e030a35",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "stop": {
+    "sha": "d4323b416a3e5e590dba1b671f7bb796762286e97ba8bc527b58567bfd8a619c",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "careful": {
+    "sha": "663a02c6b19d87f1ac1a16e235fcee0506cbf4d8d275463ef38e574de4705e4f",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "ready": {
+    "sha": "7bcfc96f557d09186e9a4dad55ec1b71eb006af786029fa639b639c3f3598b69",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "error": {
+    "sha": "bb9f24791aef0e7297858cf934a313a14843e7fec13928e5215a7bbe3636c041",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "loading": {
+    "sha": "ef9a297740659f1e201f47e7430d78099d091d073b8e1cdbecca1d2d3d922c9c",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "left": {
+    "sha": "f708f3d957a720cc61706b79fe367cd1287c20f90718727c581269ae00c4ff0f",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "right": {
+    "sha": "8455e85d5d6c4c302d530f70ba20f0d2828933e9f3def46e9fee9c6770b97972",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "ahead": {
+    "sha": "1f01c5347a620f9405b1e6c3706c3baf791074ed07fc91f022452f1b54011e08",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "mode_walk": {
+    "sha": "503233a0f7498c4746771281b08777689b89408acd1e2e6f1e04a1a142e0da10",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "mode_bus": {
+    "sha": "dc374c2904488ad7f291f3c286fcd7d06fbe10d7f4c1a0db5a76757f91fb8c0e",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "mode_scene": {
+    "sha": "09ec0461d77c42fc99babe1ec2bf2c33e9e31f1d28221fe7553bb146411a9ed1",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "mode_settings": {
+    "sha": "0e1cd744044007bfa709d5d0bee5aa93aa9038f908b9a082ac5826e7e476f973",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "mode_money": {
+    "sha": "423dd1d5eacbc69ba5bc8f7d18146c566ad16c82880c0e6a9f250c0f2e9be767",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "menu": {
+    "sha": "9a860caa94b70b6be9a2c96f31849b10ace212bfd7007bfe64f29e42cf8d5228",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "back": {
+    "sha": "312fb3110e481664c83bc7e0bbe959006e2d142768d077f506272ec69aeb0d44",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "coming_soon": {
+    "sha": "5187a57f833d7a436a36c984ab908a2e83f44cc3c934cd757437fb3748f5e5b8",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "dark": {
+    "sha": "1d7823ef5b6ecceaf26facc7fd11b9c49175474eb6b2204876f187660fbf636b",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "clear": {
+    "sha": "3372223360d143c9ca1a268bbe45cc1c17bb43a9a93b57076223bc7953af4b69",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "no_path": {
+    "sha": "0e6824859690254ee59a2e16b399089fb28f41c1942ce5fddd6b1f182f15605c",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "overhead": {
+    "sha": "64d29fab326884d368358c538c2f643981f6a7b0e63fefafe8341f9d6b5e6bc0",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "approaching": {
+    "sha": "55ca3b40687bf97bcfe5869674dba0b86247102a07dd3d226ca7cd25f40dca39",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "camera_down": {
+    "sha": "06686665d7ba14fa6ce3d4d2b48b4119aacc50db08937a58f223cc67a7b91162",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "slow": {
+    "sha": "0177aa002354db4c7c21b97345cfaa8668682e3308e2bc442885d296d6c7ff1d",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "battery_low": {
+    "sha": "6e459de655fa92de010ac45edde134bba0bb790d7d73dc5487d0f76a99701556",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "n_0": {
+    "sha": "5f1aa5ea251edfbefa9ed458f0d11efb660ea5a661760d7cf412a9ec9ddc91eb",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "n_1": {
+    "sha": "49ac450039f18582e7d00f5a238215e70819934690a0e41149c1b00a75e57f6d",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "n_2": {
+    "sha": "12318ca16046439baa25d5191c8165d61b8ed73c9e796ccb2ad44e43f20ede68",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "n_3": {
+    "sha": "bc3596facaffffbb1946ba707b9b4211b00ec44ee08575427f527b83b292bf0b",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "n_4": {
+    "sha": "097be8a53dcd02342350fc21561f6c95cec57faf9142470e884d9ac38524d7f1",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "n_5": {
+    "sha": "603c0b32bcfb8aac21553123e40b9c4abcc2d61088209b72dcacb9c3d041bd84",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "n_6": {
+    "sha": "875a34cb9065658f4aed5d1c39bf07a2b962124a29b44e80a1a4a4f89a567ecd",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "n_7": {
+    "sha": "d5a80231a3cb43e7eebe85f82cb9439b52ca45c00f292242cb7ae4e1e9e23302",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "n_8": {
+    "sha": "20bda5d5c590f9d445b6cc2f094c57241eb23c08f40eb4a08cbc8fedbb9e7e20",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "n_9": {
+    "sha": "9e5fe6c7090366d79b245a745e400093386746d1a06a5dcb2b86ad08bf3ba0a4",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "bus_is": {
+    "sha": "c970cdd574250311de2c9c4de78a264a14a9c9800e176e559076ee0591a1e3d3",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "unclear": {
+    "sha": "8079c44513cfd202bbdf5c0d79602ea37c191816e9894b9d65240f68dffab3f9",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  },
+  "try_again": {
+    "sha": "70c455d6697a0f160556a78f4922935781ee97d5bf725c2ea237c3c97b7acfdf",
+    "provider": "azure",
+    "voice": "mn-MN-YesuiNeural"
+  }
+}

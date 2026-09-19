@@ -30,7 +30,10 @@ import { route, type Availability } from "./router";
 import { AHEAD_DEG, bearingDeg, confidenceFor, directionFor, distancePhrase, SLIGHT_DEG } from "./spatial";
 
 const T0 = 1_700_000_000_000;
-const POSE: CameraPose = { frameWidth: 640, frameHeight: 480, pitchDeg: 20, cameraHeightM: 1.4 };
+/** A working orientation sensor — the case the distance assertions describe. */
+const POSE: CameraPose = {
+  frameWidth: 640, frameHeight: 480, pitchDeg: 20, pitchMeasured: true, cameraHeightM: 1.4,
+};
 const all = () => true;
 
 /** A candidate at a given frame fraction, with a reliable distance by default. */
