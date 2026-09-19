@@ -59,3 +59,9 @@ certificates
 # ultralytics downloads checkpoints and the 572 MB MobileCLIP text encoder into cwd
 /*.pt
 /mobileclip_*.ts
+
+# OCR runtime — vendored from node_modules + tessdata by scripts/setup-tesseract.mjs,
+# which `prebuild` runs. 8.3 MB that regenerates deterministically, so it does not
+# belong in history the way public/wasm and public/models (which have no such
+# script) unavoidably do.
+/public/tesseract
