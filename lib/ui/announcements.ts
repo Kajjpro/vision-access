@@ -136,6 +136,224 @@ export const RIDE = {
   finish: p("ui_ride_finish", "Дуусгах", "Finish"),
 } as const;
 
+// -------------------------------------------------- journey confirmations
+//
+// THE TWO QUESTIONS THE APP CANNOT ANSWER FOR ITSELF.
+//
+// There is no live vehicle feed (docs/city-gateway.md), so nothing here can see
+// a bus arrive, see a door open, or see anyone step through it. The old flow
+// resolved that by ASSUMING: the wait screen wrote a handoff and the ride screen
+// started counting stops from it, whether or not the rider was on anything.
+//
+// These ask instead. An answer from the person standing there is better evidence
+// than the feed would have been, and it is the only evidence that exists.
+//
+// Rendered through the WAV pipeline (`ui_`), not the transit manifest, for the
+// same reason the welcome is: iOS Safari decodes WAV natively and these are the
+// two sentences a journey cannot proceed without.
+
+export const CONFIRM = {
+  /** Asked once the bus is due and again while the question stands unanswered. */
+  boardedQuestion: p("ui_confirm_boarded_q", "Автобусанд суусан уу?", "Did you board the bus?"),
+  boardedYes: p("ui_confirm_boarded_yes", "Тийм, суусан", "Yes, I boarded"),
+  boardedNo: p("ui_confirm_boarded_no", "Үгүй, суугаагүй", "No, I did not board"),
+  /**
+   * The third answer, and the one that makes the other two honest.
+   *
+   * Forcing a yes/no on someone who genuinely cannot tell produces a guess, and
+   * a guessed yes starts a stop countdown for a bus nobody is on. Offering "I
+   * do not know" is what lets the app resolve toward safety instead of toward
+   * whichever button was easier to reach.
+   */
+  notSure: p("ui_confirm_not_sure", "Мэдэхгүй байна", "I am not sure"),
+  /**
+   * Said before the alternatives, whenever an answer was no or unsure.
+   *
+   * A missed bus must never sound like something the rider did wrong. They are
+   * standing exactly where they should be; what failed, if anything, was a
+   * timetable.
+   */
+  stillHelping: p("ui_confirm_still_helping", "Зүгээр. Би тусалсаар байна.",
+    "That is okay. I am still helping you."),
+  /**
+   * Asked when the estimate has been and gone with no answer.
+   *
+   * The app knows only that a printed time has passed — NOT that a bus came,
+   * and not that it did not. So it reports exactly that and asks.
+   */
+  expectedNow: p("ui_confirm_expected_now", "Автобус ирэх цаг болсон.",
+    "The bus was expected around now."),
+
+  /**
+   * A missed bus is a normal event at a bus stop and is never phrased as a
+   * failure. The rider hears what happens next, not what went wrong.
+   */
+  waitForNext: p("ui_confirm_wait_next", "Дараагийн автобусыг хүлээх", "Wait for the next bus"),
+  waitingForNext: p("ui_confirm_waiting_next", "Дараагийн автобусыг хүлээж байна",
+    "Waiting for the next bus"),
+  findAnotherRoute: p("ui_confirm_find_other", "Өөр чиглэл хайх", "Find another route"),
+
+  exitedQuestion: p("ui_confirm_exited_q", "Автобуснаас буусан уу?", "Have you got off the bus?"),
+  exitedYes: p("ui_confirm_exited_yes", "Тийм, буусан", "Yes, I got off"),
+  notYet: p("ui_confirm_not_yet", "Хараахан үгүй", "Not yet"),
+} as const;
+
+// ------------------------------------------------------ proactive guidance
+//
+// What the guide says when nothing has changed.
+//
+// CLAUDE.md's rule that audio is not a progress bar and the requirement that the
+// app never fall unexplainably silent are both true, and they only look opposed
+// if reassurance has to be a sentence. It does not: at the default guidance
+// level the heartbeat is an earcon and a haptic, which proves the app is alive
+// without masking the traffic the rider is listening to. These strings are for
+// `detailed`, where the rider has asked for words.
+
+// ------------------------------------------------------------ ask the room
+//
+// The vocabulary of a spoken answer about the space in front of the user.
+//
+// SLOTS, NOT SENTENCES. Every Tier 1 answer is object · hedge · direction ·
+// distance, assembled in that fixed order — a user who has heard the shape a
+// dozen times stops parsing and hears only the slot that changed.
+//
+// Two of the four slots already existed and are REUSED rather than re-rendered:
+// the object name is the detector's own class clip (`door` → "Хаалга") and the
+// distance is `approx` + `m_2`…`m_5`, which already carry the attributive
+// numerals correctly ("гурван метр", not "гурав метр"). Only the direction
+// words, the hedges and the failure phrases are new.
+//
+// Metre clips exist for 2 to 5 only. That is the entire range this app can speak
+// a distance for, and `distancePhrase` enforces it — outside that range the
+// answer keeps the direction and drops the number rather than rounding into a
+// figure nobody measured.
+
+/**
+ * NOTE THE `ui_` PREFIX. It is not decoration — two consumers filter on it:
+ * `scripts/render-ui-audio.ts` renders only `ui_*` through the WAV pipeline, and
+ * `ManifestClipPlayer`'s default key set loads only `ui_*`. A clip id without it
+ * is never rendered and never loaded, and the failure is silent in both places.
+ */
+export const ASK = {
+  /** Reused: the same hedge the transit countdown uses, so it means one thing. */
+  approx: p("approx", "ойролцоогоор", "approximately"),
+
+  dirAhead: p("ui_ask_dir_ahead", "Урд талд", "ahead"),
+  dirSlightLeft: p("ui_ask_dir_slight_left", "Бага зэрэг зүүн талд", "slightly to your left"),
+  dirSlightRight: p("ui_ask_dir_slight_right", "Бага зэрэг баруун талд", "slightly to your right"),
+  dirLeft: p("ui_ask_dir_left", "Зүүн талд", "to your left"),
+  dirRight: p("ui_ask_dir_right", "Баруун талд", "to your right"),
+  /**
+   * NEVER "behind you". The camera cannot see behind it, and a rider turning to
+   * face something the app never saw is a failure with no recovery.
+   */
+  notInView: p("ui_ask_not_in_view", "Харагдахгүй байна", "not in view"),
+
+  /** Confidence as register. The numbers are never spoken. */
+  maybe: p("ui_ask_maybe", "байх шиг байна", "I think there is"),
+  uncertain: p("ui_ask_uncertain", "магадгүй, гэхдээ итгэлгүй байна", "possibly, but I am not certain"),
+
+  /**
+   * The honest decline. Said whenever the need was served by a class other than
+   * the one asked for — a bench answering a request for a chair.
+   */
+  cannotRecognise: p("ui_ask_cannot_recognise", "Би үүнийг найдвартай таньж чадахгүй",
+    "I cannot reliably recognise that"),
+  notFound: p("ui_ask_not_found", "Одоогоор харагдахгүй байна", "I cannot see that right now"),
+  /** One instruction at a time. Never a stream of them. */
+  scanSlowly: p("ui_ask_scan_slowly", "Утсаа аажим эргүүлж үзнэ үү", "Turn your phone slowly"),
+  noneVisible: p("ui_ask_none_visible", "Юу ч харагдахгүй байна", "I cannot see anything"),
+
+  /**
+   * The path answer, and it never says yes.
+   *
+   * "No obstacle was DETECTED" is a statement about the camera. "The path is
+   * clear" is a statement about the world, and this system is not entitled to
+   * make it. The mobility-aid clause is part of the answer, not a setting.
+   */
+  nothingAhead: p("ui_ask_nothing_ahead", "Урд талд саад илрээгүй", "No obstacle detected ahead"),
+  useCane: p("ui_ask_use_cane", "Таягаа үргэлжлүүлэн хэрэглээрэй", "Please keep using your cane"),
+
+  tooDark: p("ui_ask_too_dark", "Гэрэл багатай тул найдвартай таних боломжгүй",
+    "It is too dark for me to identify things reliably"),
+  cameraBlocked: p("ui_ask_camera_blocked", "Камер халхлагдсан байж магадгүй",
+    "The camera may be covered"),
+  noNetwork: p("ui_ask_no_network", "Сүлжээгүй тул үүнийг шинжлэх боломжгүй",
+    "I cannot analyse this without a connection"),
+
+  /** Four words. A clarifying question is not the place for an explanation. */
+  whatToFind: p("ui_ask_what_to_find", "Юуг олох вэ?", "What should I look for?"),
+  /** Availability is never asserted. Sitting on someone is the failure. */
+  cannotTellFree: p("ui_ask_cannot_tell_free", "Сул эсэхийг найдвартай хэлж чадахгүй",
+    "I cannot reliably tell whether it is free"),
+} as const;
+
+// ------------------------------------------------- estimate versus sighting
+//
+// THE MOST IMPORTANT DISTINCTION IN THE WAITING HALF OF THE APP.
+//
+// "The bus is arriving" asserts that a vehicle was observed. "The timetable says
+// a bus is due" asserts only that a schedule exists. A rider steps off a kerb
+// into traffic on the strength of the first one, and we have never observed a
+// vehicle — the City feed has never opened (docs/city-gateway.md).
+//
+// So `estimatePrefix` leads every spoken time, and `noLivePosition` is said
+// whenever the rider asks about the bus directly. `ойролцоогоор` hedges the
+// NUMBER; these hedge the CLAIM, and the two are not interchangeable: "in
+// approximately four minutes" still sounds like something is being watched.
+//
+// If a live feed ever opens, `evidenceFor` in lib/journey/types.ts is the single
+// switch, and these clips simply stop being selected.
+
+export const TIMETABLE = {
+  estimatePrefix: p("ui_timetable_prefix", "Цагийн хуваарийн мэдээллээр.",
+    "According to the timetable."),
+  noLivePosition: p("ui_timetable_no_live", "Автобусны яг байршлыг одоогоор баталгаажуулах боломжгүй.",
+    "I cannot currently confirm the bus's exact position."),
+} as const;
+
+// ------------------------------------------------------- the quick assistant
+//
+// One action during a journey, whose CONTENTS change with the state. Not a
+// chatbot: a fixed, readable list of the questions that are answerable right
+// now, so a rider learns the same few phrases instead of composing sentences at
+// a bus stop. Every one of them is answered by lib/journey/guide.ts from the
+// journey object.
+
+export const ASSIST = {
+  ask: p("ui_assist_ask", "Асуух", "Ask VisionAccess"),
+  whatIsHappening: p("ui_assist_what_happening", "Юу болж байна?", "What is happening?"),
+  whenIsBus: p("ui_assist_when_bus", "Автобус хэзээ ирэх вэ?", "When is the bus expected?"),
+  howManyStops: p("ui_assist_how_many_stops", "Хэдэн буудал үлдсэн бэ?", "How many stops remain?"),
+  howLong: p("ui_assist_how_long", "Хэр удах вэ?", "How long until I arrive?"),
+  nextStop: p("ui_assist_next_stop", "Дараагийн буудал юу вэ?", "What is the next stop?"),
+  whatShouldIDo: p("ui_assist_what_do", "Би юу хийх вэ?", "What should I do?"),
+  repeatLast: p("ui_assist_repeat", "Сүүлийн мэдээллийг давтах", "Repeat the last update"),
+  atTheStop: p("ui_assist_at_stop", "Би буудал дээр байна", "I am at the stop"),
+  stopGuidance: p("ui_assist_stop_guidance", "Хөтөчийг зогсоох", "Stop guidance"),
+} as const;
+
+// ----------------------------------------------------------------- settings
+
+export const SETTINGS = {
+  guidanceLevel: p("ui_settings_guidance_level", "Мэдээллийн хэмжээ", "Guidance level"),
+  minimal: p("ui_settings_minimal", "Хамгийн бага", "Minimal"),
+  standard: p("ui_settings_standard", "Энгийн", "Standard"),
+  detailed: p("ui_settings_detailed", "Дэлгэрэнгүй", "Detailed"),
+  /** The non-verbal heartbeat, switchable independently of the level. */
+  heartbeatOn: p("ui_settings_heartbeat_on", "Идэвхтэй дохио асаах", "Turn the activity signal on"),
+  heartbeatOff: p("ui_settings_heartbeat_off", "Идэвхтэй дохио унтраах", "Turn the activity signal off"),
+  saved: p("ui_settings_saved", "Хадгаллаа", "Saved"),
+} as const;
+
+export const GUIDE = {
+  stillActive: p("ui_guide_still_active", "Хөтөч ажиллаж байна", "Guidance is still running"),
+  walkingToStop: p("ui_guide_walking_to_stop", "Буудал руу явж байна", "Walking to the stop"),
+  stopNear: p("ui_guide_stop_near", "Буудал ойрхон байна", "The stop is near"),
+  reachedStop: p("ui_guide_reached_stop", "Буудалд ирлээ", "You have reached the stop"),
+  journeyComplete: p("ui_guide_journey_complete", "Аялал дууслаа", "The journey is complete"),
+} as const;
+
 // ------------------------------------------------------- degraded states
 // One phrase per CAUSE. "Location unavailable" for a rate limit would send a
 // user looking for open sky, wasting the one action they might take.
@@ -330,7 +548,8 @@ export const VOICE_JOURNEY = {
 /** Every phrase, flattened — used by the review dump and the coverage test. */
 export const ALL_PHRASES: Record<string, Phrase> = Object.fromEntries(
   Object.entries({
-    GESTURE, SCREEN, POSITION, MODE, WAIT, RIDE, DEGRADED, LIST, VOICE, JOURNEY, VOICE_JOURNEY,
+    GESTURE, SCREEN, POSITION, MODE, WAIT, RIDE, CONFIRM, TIMETABLE, ASSIST, SETTINGS, GUIDE,
+    ASK, DEGRADED, LIST, VOICE, JOURNEY, VOICE_JOURNEY,
   }).flatMap(
     ([group, table]) => Object.entries(table).map(([key, phrase]) => [`${group}.${key}`, phrase as Phrase]),
   ),

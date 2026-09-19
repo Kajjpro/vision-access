@@ -226,6 +226,82 @@ export const PHRASES: Phrase[] = [
   { id: "ui_pos_bottom_right", mn: "баруун доод", en: "bottom right", kind: "ui" },
   { id: "ui_ride_manual_advance", mn: "Нэг буудал өнгөрлөө", en: "One stop has passed", kind: "ui" },
   { id: "ui_ride_finish", mn: "Дуусгах", en: "Finish", kind: "ui" },
+
+  // --- journey confirmations. The two questions the app cannot answer for
+  // itself, because there is no vehicle feed to answer them with. Until
+  // `npx tsx scripts/render-ui-audio.ts` renders these, the audio queue reports
+  // them missing and the earcon and haptic still carry the state — the flow
+  // works non-verbally rather than silently doing the wrong thing.
+  { id: "ui_confirm_boarded_q", mn: "Автобусанд суусан уу?", en: "Did you board the bus?", kind: "ui" },
+  { id: "ui_confirm_boarded_yes", mn: "Тийм, суусан", en: "Yes, I boarded", kind: "ui" },
+  { id: "ui_confirm_boarded_no", mn: "Үгүй, суугаагүй", en: "No, I did not board", kind: "ui" },
+  { id: "ui_confirm_wait_next", mn: "Дараагийн автобусыг хүлээх", en: "Wait for the next bus", kind: "ui" },
+  { id: "ui_confirm_waiting_next", mn: "Дараагийн автобусыг хүлээж байна", en: "Waiting for the next bus", kind: "ui" },
+  { id: "ui_confirm_find_other", mn: "Өөр чиглэл хайх", en: "Find another route", kind: "ui" },
+  { id: "ui_confirm_exited_q", mn: "Автобуснаас буусан уу?", en: "Have you got off the bus?", kind: "ui" },
+  { id: "ui_confirm_exited_yes", mn: "Тийм, буусан", en: "Yes, I got off", kind: "ui" },
+  { id: "ui_confirm_not_yet", mn: "Хараахан үгүй", en: "Not yet", kind: "ui" },
+  { id: "ui_confirm_not_sure", mn: "Мэдэхгүй байна", en: "I am not sure", kind: "ui" },
+  { id: "ui_confirm_still_helping", mn: "Зүгээр. Би тусалсаар байна.", en: "That is okay. I am still helping you.", kind: "ui" },
+  { id: "ui_confirm_expected_now", mn: "Автобус ирэх цаг болсон.", en: "The bus was expected around now.", kind: "ui" },
+
+  // --- estimate versus sighting. `ойролцоогоор` hedges the number; these hedge
+  // the CLAIM. Both are needed: "in approximately four minutes" still sounds
+  // like something is being watched, and nothing is.
+  { id: "ui_timetable_prefix", mn: "Цагийн хуваарийн мэдээллээр.", en: "According to the timetable.", kind: "ui" },
+  { id: "ui_timetable_no_live", mn: "Автобусны яг байршлыг одоогоор баталгаажуулах боломжгүй.", en: "I cannot currently confirm the bus's exact position.", kind: "ui" },
+
+  // --- the contextual quick assistant.
+  { id: "ui_assist_ask", mn: "Асуух", en: "Ask VisionAccess", kind: "ui" },
+  { id: "ui_assist_what_happening", mn: "Юу болж байна?", en: "What is happening?", kind: "ui" },
+  { id: "ui_assist_when_bus", mn: "Автобус хэзээ ирэх вэ?", en: "When is the bus expected?", kind: "ui" },
+  { id: "ui_assist_how_many_stops", mn: "Хэдэн буудал үлдсэн бэ?", en: "How many stops remain?", kind: "ui" },
+  { id: "ui_assist_how_long", mn: "Хэр удах вэ?", en: "How long until I arrive?", kind: "ui" },
+  { id: "ui_assist_next_stop", mn: "Дараагийн буудал юу вэ?", en: "What is the next stop?", kind: "ui" },
+  { id: "ui_assist_what_do", mn: "Би юу хийх вэ?", en: "What should I do?", kind: "ui" },
+  { id: "ui_assist_repeat", mn: "Сүүлийн мэдээллийг давтах", en: "Repeat the last update", kind: "ui" },
+  { id: "ui_assist_at_stop", mn: "Би буудал дээр байна", en: "I am at the stop", kind: "ui" },
+  { id: "ui_assist_stop_guidance", mn: "Хөтөчийг зогсоох", en: "Stop guidance", kind: "ui" },
+
+  // --- settings.
+  { id: "ui_settings_guidance_level", mn: "Мэдээллийн хэмжээ", en: "Guidance level", kind: "ui" },
+  { id: "ui_settings_minimal", mn: "Хамгийн бага", en: "Minimal", kind: "ui" },
+  { id: "ui_settings_standard", mn: "Энгийн", en: "Standard", kind: "ui" },
+  { id: "ui_settings_detailed", mn: "Дэлгэрэнгүй", en: "Detailed", kind: "ui" },
+  { id: "ui_settings_heartbeat_on", mn: "Идэвхтэй дохио асаах", en: "Turn the activity signal on", kind: "ui" },
+  { id: "ui_settings_heartbeat_off", mn: "Идэвхтэй дохио унтраах", en: "Turn the activity signal off", kind: "ui" },
+  { id: "ui_settings_saved", mn: "Хадгаллаа", en: "Saved", kind: "ui" },
+
+  // --- ask the room. The direction words, hedges and failure phrases; the
+  // object names and the metre clips above are reused rather than re-rendered.
+  { id: "ui_ask_dir_ahead", mn: "Урд талд", en: "ahead", kind: "ui" },
+  { id: "ui_ask_dir_slight_left", mn: "Бага зэрэг зүүн талд", en: "slightly to your left", kind: "ui" },
+  { id: "ui_ask_dir_slight_right", mn: "Бага зэрэг баруун талд", en: "slightly to your right", kind: "ui" },
+  { id: "ui_ask_dir_left", mn: "Зүүн талд", en: "to your left", kind: "ui" },
+  { id: "ui_ask_dir_right", mn: "Баруун талд", en: "to your right", kind: "ui" },
+  { id: "ui_ask_not_in_view", mn: "Харагдахгүй байна", en: "not in view", kind: "ui" },
+  { id: "ui_ask_maybe", mn: "байх шиг байна", en: "I think there is", kind: "ui" },
+  { id: "ui_ask_uncertain", mn: "магадгүй, гэхдээ итгэлгүй байна", en: "possibly, but I am not certain", kind: "ui" },
+  { id: "ui_ask_cannot_recognise", mn: "Би үүнийг найдвартай таньж чадахгүй", en: "I cannot reliably recognise that", kind: "ui" },
+  { id: "ui_ask_not_found", mn: "Одоогоор харагдахгүй байна", en: "I cannot see that right now", kind: "ui" },
+  { id: "ui_ask_scan_slowly", mn: "Утсаа аажим эргүүлж үзнэ үү", en: "Turn your phone slowly", kind: "ui" },
+  { id: "ui_ask_none_visible", mn: "Юу ч харагдахгүй байна", en: "I cannot see anything", kind: "ui" },
+  { id: "ui_ask_nothing_ahead", mn: "Урд талд саад илрээгүй", en: "No obstacle detected ahead", kind: "ui" },
+  { id: "ui_ask_use_cane", mn: "Таягаа үргэлжлүүлэн хэрэглээрэй", en: "Please keep using your cane", kind: "ui" },
+  { id: "ui_ask_too_dark", mn: "Гэрэл багатай тул найдвартай таних боломжгүй", en: "It is too dark to identify things reliably", kind: "ui" },
+  { id: "ui_ask_camera_blocked", mn: "Камер халхлагдсан байж магадгүй", en: "The camera may be covered", kind: "ui" },
+  { id: "ui_ask_no_network", mn: "Сүлжээгүй тул үүнийг шинжлэх боломжгүй", en: "I cannot analyse this without a connection", kind: "ui" },
+  { id: "ui_ask_what_to_find", mn: "Юуг олох вэ?", en: "What should I look for?", kind: "ui" },
+  { id: "ui_ask_cannot_tell_free", mn: "Сул эсэхийг найдвартай хэлж чадахгүй", en: "I cannot reliably tell whether it is free", kind: "ui" },
+
+  // --- proactive guidance. Spoken only at guidance level `detailed`; at the
+  // default the heartbeat is an earcon, which proves the app is alive without
+  // masking traffic. See lib/journey/pacer.ts.
+  { id: "ui_guide_still_active", mn: "Хөтөч ажиллаж байна", en: "Guidance is still running", kind: "ui" },
+  { id: "ui_guide_walking_to_stop", mn: "Буудал руу явж байна", en: "Walking to the stop", kind: "ui" },
+  { id: "ui_guide_stop_near", mn: "Буудал ойрхон байна", en: "The stop is near", kind: "ui" },
+  { id: "ui_guide_reached_stop", mn: "Буудалд ирлээ", en: "You have reached the stop", kind: "ui" },
+  { id: "ui_guide_journey_complete", mn: "Аялал дууслаа", en: "The journey is complete", kind: "ui" },
   { id: "ui_welcome", mn: "Харааны Хандалт. Дээш доош шударч сонголтоо сонсоно уу. Хоёр удаа товшиж сонгоно уу.", en: "Vision Access. Swipe up or down to hear the options. Double-tap to choose.", kind: "ui" },
   { id: "ui_back", mn: "Буцлаа", en: "Went back", kind: "ui" },
   { id: "ui_voice_prompt", mn: "Хаашаа явах вэ? Буудлын нэрээ хэлнэ үү.", en: "Where are you going? Say the name of the stop.", kind: "ui" },
