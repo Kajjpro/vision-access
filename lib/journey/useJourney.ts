@@ -70,6 +70,11 @@ export type UseJourney = {
   startAudio: () => Promise<void>;
   /** Whether a clip exists. Screens pass this into anything that builds keys. */
   has: (key: string) => boolean;
+  /**
+   * Narrows what `startAudio` will decode, for callers that know their route.
+   * Must be called BEFORE the first touch, or the default UI-only set is used.
+   */
+  setPreloadKeys: (keys: string[]) => void;
   /** Diagnostics for the debug panel. */
   log: string[];
   note: (line: string) => void;
@@ -85,6 +90,8 @@ export function useJourney(manifest: AudioManifest, now: number): UseJourney {
   const startedRef = useRef(false);
   const lastSpokenRef = useRef<Announcement | null>(null);
   const reporterRef = useRef(createMissingClipReporter());
+  /** Set by the screen once the route is known; see `setPreloadKeys`. */
+  const preloadKeysRef = useRef<string[] | null>(null);
 
   const has = useCallback((key: string) => Boolean(manifest[key]), [manifest]);
 
@@ -199,7 +206,21 @@ export function useJourney(manifest: AudioManifest, now: number): UseJourney {
     });
 
     queueRef.current = queue;
-    await player.load();
+
+    /**
+     * ROUTE-SCOPED, NEVER THE WHOLE MANIFEST.
+     *
+     * `load()` with no argument decodes all 1,065 clips — 37 minutes of audio,
+     * which `decodeAudioData` resamples to the context rate, so roughly 400 MB
+     * of float32 PCM resident on a phone this project already fights to keep
+     * under iOS's tab limit. It would not crash diagnosably: the tab would die
+     * and reload exactly like the detector bug.
+     *
+     * The caller supplies the journey's own keys. Until it does, only the UI
+     * phrases load — enough to speak every state and every question, and not
+     * one stop name that is not on this route.
+     */
+    await player.load(preloadKeysRef.current ?? undefined);
 
     // Settings are read here rather than at mount: localStorage does not exist
     // during SSR, and this is the first moment the app is certainly in a browser.
@@ -261,9 +282,11 @@ export function useJourney(manifest: AudioManifest, now: number): UseJourney {
   const view = useMemo(() => present(journey, now), [journey, now]);
   const assistant = useMemo(() => assistantMenu(journey), [journey]);
 
+  const setPreloadKeys = useCallback((keys: string[]) => { preloadKeysRef.current = keys; }, []);
+
   return {
     journey, view, assistant, send, speak, ask, repeat,
-    setGuidanceLevel, setHeartbeat, startAudio, has, log, note,
+    setGuidanceLevel, setHeartbeat, startAudio, has, log, note, setPreloadKeys,
     missingClips: missing,
   };
 }
