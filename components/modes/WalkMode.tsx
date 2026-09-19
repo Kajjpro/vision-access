@@ -13,6 +13,8 @@ import {
   updateProximity,
 } from "@/lib/audio";
 import { clearMark, mark, takeCrashStage } from "@/lib/breadcrumb";
+import { pitchFromBeta, requestTiltPermission } from "@/lib/tilt";
+import { pinPlan, pinnedPlan, planFor } from "@/lib/vision-plan";
 import { PHRASES } from "@/lib/phrases";
 import { clearestDirection, isApproaching, isOverhead } from "@/lib/path";
 import { Tracker } from "@/lib/tracker";
@@ -111,26 +113,6 @@ function nowMs(): number {
 }
 
 /**
- * iOS gates the orientation sensor behind an explicit grant that must be asked
- * for inside a user gesture. Returns false when unavailable, in which case the
- * pitch falls back to a constant and distances get much less accurate.
- */
-type OrientationCtor = typeof DeviceOrientationEvent & {
-  requestPermission?: () => Promise<"granted" | "denied">;
-};
-
-async function requestTiltPermission(): Promise<boolean> {
-  if (typeof DeviceOrientationEvent === "undefined") return false;
-  const ctor = DeviceOrientationEvent as OrientationCtor;
-  if (typeof ctor.requestPermission !== "function") return true; // Android: no gate
-  try {
-    return (await ctor.requestPermission()) === "granted";
-  } catch {
-    return false;
-  }
-}
-
-/**
  * Screen Wake Lock. Not in TypeScript's DOM lib in this configuration.
  *
  * This is the difference between an app that works and one that appears to:
@@ -162,15 +144,6 @@ type BatteryLike = EventTarget & { level: number; charging: boolean };
 function getBattery(): Promise<BatteryLike> | null {
   const nav = navigator as Navigator & { getBattery?: () => Promise<BatteryLike> };
   return typeof nav.getBattery === "function" ? nav.getBattery() : null;
-}
-
-/**
- * `beta` is the front-to-back tilt: 90 with the phone held upright, 0 laid flat.
- * The rear camera points level at beta 90, so downward pitch is 90 - beta.
- */
-function pitchFromBeta(beta: number | null): number | null {
-  if (beta === null || Number.isNaN(beta)) return null;
-  return Math.min(80, Math.max(0, 90 - beta));
 }
 
 export default function WalkMode({ onBack }: { onBack: () => void }) {
@@ -428,6 +401,22 @@ export default function WalkMode({ onBack }: { onBack: () => void }) {
     workerRef.current = worker;
     mark("worker-spawned");
 
+    /**
+     * How hard the worker is allowed to push, decided HERE because the evidence
+     * lives in localStorage and a worker cannot read it.
+     *
+     * On iOS a tab killed for memory reloads with no error, no log and no
+     * exception — the app comes back on the home menu and the user tries again,
+     * which is the loop reported from the phone. `crashedAt` is the only trace
+     * that run left, so if it died with the model in memory the next attempt is
+     * the cheap configuration, and that choice is pinned rather than re-derived:
+     * a lean run SUCCEEDS, which clears the breadcrumb, which would otherwise
+     * send the launch after it straight back into the crash.
+     */
+    const plan = planFor({ pinned: pinnedPlan(), crashStage: crashedAt });
+    if (plan.id !== "full") pinPlan(plan.id);
+    worker.postMessage({ type: "start", plan });
+
     worker.onmessage = (ev: MessageEvent<WorkerResponse>) => {
       const msg = ev.data;
 
@@ -447,8 +436,14 @@ export default function WalkMode({ onBack }: { onBack: () => void }) {
 
       if (msg.type === "ready") {
         workerReadyRef.current = true;
-        setModelStatus(`model ready · ${msg.backend}`);
+        setModelStatus(`model ready · ${msg.backend} · ${msg.plan}`);
         mark("model-ready", msg.backend);
+        // Pin what actually WORKED, not what was asked for. The worker falls
+        // back on its own when WebGPU wedges, and that fallback is the most
+        // memory-expensive path there is — two sessions built back to back.
+        // Recording the outcome means the next launch goes straight to the
+        // configuration that survived instead of paying for the discovery again.
+        if (msg.plan !== "full") pinPlan(msg.plan);
         return;
       }
 
@@ -679,7 +674,9 @@ export default function WalkMode({ onBack }: { onBack: () => void }) {
     };
     // speak/play only touch refs, so the loop does not need rebuilding when
     // they change identity.
-  }, [running, announce]);
+    // crashedAt is read once at mount and never set again, so it cannot
+    // re-trigger this; it is listed because the plan is derived from it.
+  }, [running, announce, crashedAt]);
 
   return (
     <div className="w-screen h-screen bg-black relative">

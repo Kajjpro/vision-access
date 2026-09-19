@@ -11,10 +11,17 @@
  *   new Worker(new URL("../lib/vision.worker.ts", import.meta.url), { type: "module" })
  *
  * Protocol
+ *   in   { type: "start", plan }                  begins the load; see below
  *   in   { type: "frame", bitmap: ImageBitmap }   transferred, closed here
- *   out  { type: "ready" }                        model loaded, frames accepted
+ *   out  { type: "ready", backend, plan }         model loaded, frames accepted
  *   out  { type: "detections", boxes, inferenceMs }
  *   out  { type: "error", message }               nothing is ever silent
+ *
+ * NOTHING LOADS UNTIL `start` ARRIVES. The load used to begin on module
+ * evaluation, which is one message earlier and was worth it right up until the
+ * configuration stopped being a constant. Which plan to use is decided from a
+ * breadcrumb in localStorage, and a worker cannot read localStorage — so the
+ * main thread has to hand it over, and the load has to wait for it.
  *
  * Frames arriving mid-inference are DROPPED, never queued: a queue turns a slow
  * device into an ever-growing lag between what the camera sees and what the user
@@ -23,6 +30,7 @@
 import * as ort from "onnxruntime-web";
 
 import { DETECTION_CLASSES } from "./phrases";
+import { FULL_PLAN, LEAN_PLAN, type LoadPlan, type PlanId } from "./vision-plan";
 
 const MODEL_URL = "/models/yoloe-11s.onnx";
 const INPUT_SIZE = 640;
@@ -65,12 +73,15 @@ export type Detection = {
   h: number;
 };
 
-export type WorkerRequest = { type: "frame"; bitmap: ImageBitmap };
+export type WorkerRequest =
+  | { type: "start"; plan: LoadPlan }
+  | { type: "frame"; bitmap: ImageBitmap };
 
 export type WorkerResponse =
   /** Model download progress. total is 0 when the server sends no length. */
   | { type: "progress"; loaded: number; total: number }
-  | { type: "ready"; backend: string }
+  /** `plan` is the one that actually worked, which is not always the one asked for. */
+  | { type: "ready"; backend: string; plan: PlanId }
   | { type: "detections"; boxes: Detection[]; inferenceMs: number; luma: number }
   | { type: "error"; message: string };
 
@@ -93,18 +104,26 @@ function fail(context: string, e: unknown) {
 // The .wasm binary is fetched at runtime and must be same-origin: COEP is
 // require-corp (next.config.ts), so ort's CDN default would be blocked.
 ort.env.wasm.wasmPaths = "/wasm/";
-// Threads need SharedArrayBuffer, which needs cross-origin isolation.
-//
-// Capped at 2 rather than 4. Every extra wasm thread is another worker with its
-// own stack sharing one growable SharedArrayBuffer, and on a phone the ceiling
-// that matters is the tab's total memory, not the core count — a 4-thread pool
-// buys a few ms of inference and costs headroom the model load needs more. Above
-// 4 reported cores the device is a laptop and can afford the extra pair.
-const cores = navigator.hardwareConcurrency || 1;
-ort.env.wasm.numThreads =
-  typeof crossOriginIsolated !== "undefined" && crossOriginIsolated
-    ? Math.max(1, Math.min(cores > 4 ? 4 : 2, cores))
-    : 1;
+
+/**
+ * Threads need SharedArrayBuffer, which needs cross-origin isolation.
+ *
+ * Capped at 2 rather than 4 even on the full plan. Every extra wasm thread is
+ * another worker with its own stack sharing one growable SharedArrayBuffer AND
+ * its own arena for intermediate tensors, and on a phone the ceiling that
+ * matters is the tab's total memory, not the core count — a 4-thread pool buys
+ * a few ms of inference and costs headroom the model load needs more. Above 4
+ * reported cores the device is a laptop and can afford the extra pair.
+ *
+ * The plan's cap is applied on top: `lean` asks for one thread, which is how a
+ * phone that could not hold the full configuration gets the arena back.
+ */
+function applyThreads(plan: LoadPlan) {
+  const cores = navigator.hardwareConcurrency || 1;
+  const isolated = typeof crossOriginIsolated !== "undefined" && crossOriginIsolated;
+  const wanted = Math.min(cores > 4 ? 4 : 2, cores, plan.maxThreads);
+  ort.env.wasm.numThreads = isolated ? Math.max(1, wanted) : 1;
+}
 
 let session: ort.InferenceSession | null = null;
 let busy = false;
@@ -296,8 +315,22 @@ async function handleFrame(bitmap: ImageBitmap) {
   }
 }
 
+/** A second `start` would build a second session beside the first one. */
+let started = false;
+
 ctx.addEventListener("message", (ev: MessageEvent) => {
   const msg = ev.data as WorkerRequest;
+
+  if (msg?.type === "start") {
+    if (started) return;
+    started = true;
+    // An unrecognised or absent plan falls back to the fast one rather than to
+    // nothing: a worker that silently refuses to load is the failure mode this
+    // whole file is written against.
+    void load(msg.plan ?? FULL_PLAN);
+    return;
+  }
+
   if (msg?.type === "frame") void handleFrame(msg.bitmap);
 });
 
@@ -454,12 +487,13 @@ async function fetchModel(): Promise<Uint8Array> {
   return bytes;
 }
 
-async function load() {
+async function load(plan: LoadPlan) {
   await purgeStaleModelCaches();
 
   // Download and init are timed separately: the download legitimately takes
   // minutes on a phone, while a session init that slow means something is wedged.
-  const create = async (providers: string[]) => {
+  const create = async (attempt: LoadPlan) => {
+    applyThreads(attempt);
     // Re-read per attempt because ort detaches the buffer into wasm memory, so
     // the same bytes cannot be handed to a second attempt. This is a Cache
     // Storage read, not a network download — fetchModel() populates the cache on
@@ -468,8 +502,8 @@ async function load() {
     const bytes = await withTimeout(fetchModel(), DOWNLOAD_TIMEOUT_MS, "model download");
     return withTimeout(
       ort.InferenceSession.create(bytes, {
-        executionProviders: providers,
-        graphOptimizationLevel: "all",
+        executionProviders: [...attempt.providers],
+        graphOptimizationLevel: attempt.optimization,
       }),
       SESSION_TIMEOUT_MS,
       "session init",
@@ -498,15 +532,29 @@ async function load() {
   };
 
   try {
-    session = await create(["webgpu", "wasm"]);
+    session = await create(plan);
     await warmUp(session);
-    post({ type: "ready", backend: "webgpu/wasm" });
+    post({ type: "ready", backend: plan.providers.join("/"), plan: plan.id });
     return;
   } catch (e) {
+    // A plan that is ALREADY lean has nowhere to fall back to, and retrying it
+    // would only spend another 37 MB proving the same thing.
+    if (plan.id === LEAN_PLAN.id) {
+      fail("failed to create an inference session", e);
+      return;
+    }
+
     // Falls through to a plainer configuration rather than dying here: WebGPU
     // and threaded wasm are the two parts most likely to wedge on mobile Safari.
     // Release first — a half-initialised WebGPU session still holds its weight
-    // buffers, and the wasm attempt needs that memory back.
+    // buffers, and the lean attempt needs that memory back.
+    //
+    // This retry is the most memory-expensive moment the worker has: it builds a
+    // second session while the first one's buffers may still be in flight. It is
+    // kept because a WEDGED WebGPU driver is a different failure from a memory
+    // one and is recoverable in-run — but a tab killed here is exactly what pins
+    // `lean` for next time, so this path is walked once per device, not once per
+    // launch.
     try {
       await session?.release();
     } catch {
@@ -516,18 +564,15 @@ async function load() {
 
     post({
       type: "error",
-      message: `webgpu/wasm failed (${e instanceof Error ? e.message : String(e)}) — retrying single-threaded wasm`,
+      message: `${plan.providers.join("/")} failed (${e instanceof Error ? e.message : String(e)}) — retrying single-threaded wasm`,
     });
   }
 
   try {
-    ort.env.wasm.numThreads = 1;
-    session = await create(["wasm"]);
+    session = await create(LEAN_PLAN);
     await warmUp(session);
-    post({ type: "ready", backend: "wasm (1 thread)" });
+    post({ type: "ready", backend: "wasm (1 thread)", plan: LEAN_PLAN.id });
   } catch (e) {
     fail("failed to create an inference session", e);
   }
 }
-
-void load();
