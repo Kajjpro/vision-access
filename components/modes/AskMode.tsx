@@ -51,7 +51,8 @@ import type { ListOption } from "@/lib/ui/gesture-nav";
 import type { Detection, WorkerResponse } from "@/lib/vision.worker";
 import { pinPlan, pinnedPlan, planFor } from "@/lib/vision-plan";
 import { takeCrashStage } from "@/lib/breadcrumb";
-import { pitchFromBeta, requestTiltPermission } from "@/lib/tilt";
+import { requestTiltPermission } from "@/lib/camera";
+import { pitchFromBeta } from "@/lib/tilt";
 
 /** Matching Walk mode, so the two modes see the same picture. */
 const REQUEST_W = 640;
@@ -87,6 +88,16 @@ export default function AskMode() {
    * and keeps the whole answer path free of mutable values React cannot see.
    */
   const [pitchDeg, setPitchDeg] = useState(DEFAULT_PITCH_DEG);
+  /**
+   * Whether the pitch came from a real sensor.
+   *
+   * NOT cosmetic. With a measured pitch the ground-plane estimate has ~0% median
+   * error; without one it is 42% and `estimateObjectDistance` correctly refuses
+   * to stand behind it, falling back to the size prior — and giving no number at
+   * all for the classes that have none. Reporting an unmeasured pitch as
+   * measured would put a fabricated distance in a blind rider's ear.
+   */
+  const [pitchMeasured, setPitchMeasured] = useState(false);
   const [frameSize, setFrameSize] = useState({ w: REQUEST_W, h: REQUEST_H });
 
   /**
@@ -120,8 +131,9 @@ export default function AskMode() {
     frameWidth: frameSize.w,
     frameHeight: frameSize.h,
     pitchDeg,
+    pitchMeasured,
     cameraHeightM: CAMERA_HEIGHT_M,
-  }), [frameSize, pitchDeg]);
+  }), [frameSize, pitchDeg, pitchMeasured]);
 
   /**
    * The detector's boxes turned into what the answer layer consumes.
@@ -164,6 +176,7 @@ export default function AskMode() {
         const pitch = pitchFromBeta(ev.beta);
         if (pitch === null) return;
         const rounded = Math.round(pitch);
+        setPitchMeasured(true);
         setPitchDeg((p) => (p === rounded ? p : rounded));
       });
     }
@@ -254,6 +267,19 @@ export default function AskMode() {
       const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, "image/jpeg", 0.9));
       if (!blob) throw new Error("could not capture a frame");
 
+      /**
+       * CROP TO A DETECTED SIGN WHEN THERE IS ONE — AND THERE MAY NOT BE.
+       *
+       * The shipping detector has no `sign` class, so this is currently always
+       * undefined and the read falls back to the whole frame. That is a real
+       * and known degradation: OCR on a street photograph competes with three
+       * shopfronts of text at the wrong scale, where OCR on a cropped sign is
+       * one block of large text the engine was trained for.
+       *
+       * Written against the class rather than removed, so re-adding `sign` to
+       * the export restores the crop with no code change. `capabilities.ts`
+       * reports `find_sign` as escalating for the same reason.
+       */
       const sign = detections
         .filter((d) => d.className === "sign")
         .sort((a, b) => b.score - a.score)[0];

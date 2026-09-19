@@ -7,14 +7,33 @@
  * requires every buffer decoded at startup, never at playback time — a warning
  * that has to decode before it speaks is a warning that arrives late.
  *
- * The context is created lazily because it MUST be constructed inside a user
- * gesture or iOS leaves it suspended forever. Call `audioContext()` from a tap
- * handler, never from a render or an effect.
+ * The context is created lazily and MAY be constructed before any gesture (the
+ * menu does, at mount, so every clip decodes in the background) — on iOS it
+ * simply starts SUSPENDED. What must happen inside a user gesture is the
+ * RESUME: the first tap must call `audioContext()` again (it resumes), or iOS
+ * leaves the app mute forever. A call from an effect creates or keeps the
+ * instance; a call from a tap handler is what unlocks playback.
  */
 import { PHRASES } from "./phrases";
 
 const AUDIO_DIR = "/audio";
 const AUDIO_EXT = ".wav";
+
+/**
+ * A stuck fetch must not hang every future tap forever. Generous on purpose:
+ * a free `trycloudflare.com` dev tunnel has been observed taking 2-7s for a
+ * single small clip in isolation, and the first load fetches every phrase at
+ * once — a tight timeout would turn "slow tunnel" into "missing words".
+ */
+const CLIP_FETCH_TIMEOUT_MS = 25_000;
+
+function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const limit = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`timed out after ${Math.round(ms / 1000)}s`)), ms);
+  });
+  return Promise.race([work, limit]).finally(() => clearTimeout(timer)) as Promise<T>;
+}
 
 let ctx: AudioContext | null = null;
 const buffers = new Map<string, AudioBuffer>();
@@ -90,6 +109,12 @@ export function resumeAudio(): void {
 /**
  * The shared context, created on first call. MUST be called from inside a user
  * gesture; every later call returns the same instance.
+=======
+ * The shared context, created on first call — possibly before any gesture, in
+ * which case iOS starts it suspended. Every call also resumes it, so the call
+ * from a tap handler is what unlocks playback; earlier calls (from an effect
+ * kicking off background decode) just create and keep the suspended instance.
+>>>>>>> origin/main
  */
 export function audioContext(): AudioContext {
   if (!ctx) {
@@ -153,7 +178,7 @@ export async function loadClips(
         return;
       }
       try {
-        const res = await fetch(`${AUDIO_DIR}/${phrase.id}${AUDIO_EXT}`);
+        const res = await withTimeout(fetch(`${AUDIO_DIR}/${phrase.id}${AUDIO_EXT}`), CLIP_FETCH_TIMEOUT_MS);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         buffers.set(phrase.id, await context.decodeAudioData(await res.arrayBuffer()));
         ok.push(phrase.id);
@@ -316,6 +341,7 @@ export function playTone(pan = 0): number {
 }
 
 /**
+<<<<<<< HEAD
  * The two microphone earcons: "speak now" and "got it".
  *
  * DELIBERATELY NOT `playTone`. That one is a 880 Hz square wave at 0.35 chosen
@@ -362,6 +388,51 @@ export function playListenCue(kind: "start" | "end"): number {
   const total = NOTE_S * notes.length;
   duckProximity(begin, total);
   return total;
+}
+
+/**
+ * "Locking on" — the sound of the walk loop fixing its attention on an object.
+ *
+ * Deliberately built to be unmistakable for playTone(). That one is a hard
+ * square wave at a fixed 880 Hz and a third of full volume, and it means STOP.
+ * This is a soft sine that GLIDES upward at a third of that loudness, and it
+ * means "I have noticed something and I am watching it". Confusing the two
+ * would be the worst possible outcome, so they share no property: waveform,
+ * pitch contour and level all differ.
+ *
+ * Rising, because acquiring a target is an opening event — a falling sweep
+ * reads as something being lost or shutting down.
+ *
+ * This is not speech and does not touch the one-announcement-per-1.5s budget:
+ * it is 110 ms of texture that tells a user who cannot see the screen that the
+ * detector is alive and has something in view, which is otherwise only
+ * knowable when a warning finally fires.
+ *
+ * Not ducked, unlike the warning path — at this level it sits under the
+ * proximity tone rather than fighting it.
+ */
+export function playFocus(pan = 0): number {
+  const context = audioContext();
+  const DURATION_S = 0.11;
+  const start = context.currentTime;
+
+  const osc = context.createOscillator();
+  const gain = context.createGain();
+
+  osc.type = "sine";
+  osc.frequency.setValueAtTime(900, start);
+  osc.frequency.exponentialRampToValueAtTime(1800, start + DURATION_S);
+
+  // Soft attack, exponential tail. exponentialRamp cannot reach 0, hence the
+  // small floor — ramping to a true zero throws.
+  gain.gain.setValueAtTime(0, start);
+  gain.gain.linearRampToValueAtTime(0.12, start + 0.015);
+  gain.gain.exponentialRampToValueAtTime(0.0001, start + DURATION_S);
+
+  osc.connect(gain).connect(panNode(context, pan));
+  osc.start(start);
+  osc.stop(start + DURATION_S);
+  return DURATION_S;
 }
 
 // ---------------------------------------------------------------------------

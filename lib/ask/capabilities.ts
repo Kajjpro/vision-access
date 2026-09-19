@@ -89,7 +89,17 @@ const GOALS: readonly GoalSpec[] = [
   { id: "find_crossing", candidates: ["traffic_light", "crosswalk", "curb"], escalation: "vlm" },
   {
     id: "find_obstacle",
-    candidates: ["pole", "tree", "wall", "fence", "curb", "hole", "puddle", "ice", "rock", "trash_can"],
+    /**
+     * `scaffolding` and `cable` are OVERHEAD hazards, and they lead the list on
+     * purpose. A white cane sweeps the ground and passes straight under both —
+     * they are exactly the class of obstacle this app exists to cover and the
+     * cane does not. `hole`, `ice` and `puddle` are ground hazards the cane
+     * finds first, so they rank behind.
+     */
+    candidates: [
+      "scaffolding", "cable", "pole", "tree", "wall", "fence",
+      "curb", "hole", "puddle", "ice", "rock", "trash_can",
+    ],
     escalation: "none",
   },
   // Not a search for one class — every class participates. See `answerPath`.
