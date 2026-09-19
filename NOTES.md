@@ -15,12 +15,15 @@ swipe + double-tap works unmodified.
 
 Grid order is also the order the spoken menu reads them in.
 
-| # | Mode     | id         | Label      | State |
-|---|----------|------------|------------|-------|
-| 1 | Walk     | `walk`     | Алхах      | Working — `components/modes/WalkMode.tsx` |
-| 2 | Scene    | `scene`    | Юу байна?  | Deferred — not started |
-| 3 | Bus      | `bus`      | Автобус    | Deferred — see below |
-| 4 | Settings | `settings` | Тохиргоо   | Deferred — volume + sensitivity |
+| # | Mode     | id     | Label      | State |
+|---|----------|--------|------------|-------|
+| 1 | Walk     | `walk` | Алхах      | Working — `components/modes/WalkMode.tsx` |
+| 2 | Ask      | `ask`  | Юу байна?  | Built, never run on a phone — `components/modes/AskMode.tsx` |
+| 3 | Bus      | `bus`  | Автобус    | Built, never run on a phone — `/bus/wait` → `/bus/board` → `/bus/ride` |
+| 4 | Settings | `settings` | Тохиргоо | Working — `/settings`, guidance level + heartbeat |
+
+"Scene" became **Ask the Room**: it keeps the `mode_scene` clip and slot, because
+"Юу байна?" is exactly the question that feature answers.
 
 Money is **not** on the home screen. It is deferred on data, not on UI, so
 it would sit there saying "coming soon" indefinitely; the `mode_money` clip
@@ -31,18 +34,25 @@ stays on the menu. Deliberately not the error clip: "not built yet" and
 "something broke" are different facts, and the error clip would report a
 fault and invite a retry that cannot succeed.
 
-## Deferred: SettingsMode
+## SettingsMode — partly shipped
 
-Volume and sensitivity. Small but not trivial — volume needs a gain node in
-`lib/audio.ts` that every clip routes through, and sensitivity has to reach
-`CONFIDENCE_THRESHOLD` inside `lib/vision.worker.ts`, which today is a
-module constant. That means a worker message to change it at runtime.
-Both settings persist to localStorage and must be announced when changed.
+`/settings` ships guidance level (minimal / standard / detailed) and the
+heartbeat switch, persisted and spoken on change.
 
-## Deferred: BusMode
+**Volume and sensitivity are still deferred**, and for the original reasons:
+volume needs a gain node in `lib/audio.ts` that every clip routes through, and
+sensitivity has to reach `CONFIDENCE_THRESHOLD` inside `lib/vision.worker.ts`,
+which is a module constant — so it needs a worker message to change at runtime.
+Two working controls beat four where two quietly do nothing.
 
-Read bus route numbers from a tap-to-capture photo, announced digit by
-digit.
+## Deferred: reading a bus route number from a photo
+
+NOT the bus journey flow, which ships. This is the separate idea of reading the
+route number off an approaching bus, digit by digit.
+
+**Now cheaper than when this was written:** `scripts/setup-tesseract.mjs` already
+self-hosts tesseract for Ask the Room, so the dependency, the COEP workaround and
+the wasm hosting are all done. What remains is a digit whitelist and the crop.
 
 **Plan of record: tesseract.js, on-device.** Nothing external blocks it —
 no key, no account, no network. What it needs:
@@ -146,16 +156,220 @@ the number and the suffix when `left` is negative (`statusNow` in
 `app/bus/ride/RideScreen.tsx`) — so after an overshoot it names two stops with no
 relationship between them.
 
+## iOS reloads at "model 100%" — the load plan
+
+Reported from a phone: Safari reaches 100%, the page reloads, and the app is
+back on the main menu. Both halves are one event. iOS kills a tab whose memory
+spikes and reloads it — no exception, no log — and Walk mode is component state
+on `/` (`setActive` in `HomeGestures`), never a route, so the reload can only
+come back on the menu.
+
+100% is where the spike is, because 100% is where `InferenceSession.create`
+starts. The peak holds at once: 37 MB of model bytes in the JS heap, ort's copy
+inside the wasm heap, the parsed weights, and the graph optimiser's transient
+duplicates — over a 26.8 MB wasm module and its compiled code, the decoded
+clips, and a live camera.
+
+`lib/vision-plan.ts` picks how hard to push. `lean` drops WebGPU (the JSEP path
+keeps the weights in the wasm heap *and* uploads them to the GPU, which on a
+phone is the same memory), takes one wasm thread (each thread carries its own
+intermediate-tensor arena, which at 640×640 dwarfs the weights), and uses basic
+graph optimisation. The worker no longer loads on module evaluation — it waits
+for `{type:"start", plan}`, because the evidence lives in `localStorage` and a
+worker cannot read it.
+
+**The pin is the part that matters.** A lean run succeeds, which clears the
+breadcrumb; choosing from the breadcrumb alone would send the next launch back
+to `full` and kill it again — a working app every other launch, which to someone
+who cannot see the screen is indistinguishable from random. So the first
+model-stage crash pins `lean` permanently (`va:vision-plan`), and so does an
+in-run fallback that succeeds.
+
+Two things this does NOT do. It does not make the model cheaper — the input is
+a static `[1,3,640,640]` (`npx tsx scripts/inspect-model.ts`), so nothing in the
+browser can tune it. And it does not tell the rider why the app got slower; the
+generic `error` clip on a post-crash run is all there is, and a real string
+belongs in the one strings file, not here.
+
+The next lever, if a phone still dies on `lean`: `onnxruntime-web/wasm` uses
+`ort-wasm-simd-threaded.wasm` (13.5 MB) instead of the jsep build's 26.8 MB —
+half the binary to download, compile and hold. It costs a second vendored wasm
+blob in git, permanently, which is why it is not taken yet.
+
+## The journey architecture
+
+`lib/journey/` — one `Journey` object, one state machine, five pure modules and
+45 tests. It replaces `phase` strings held separately in three screens, which is
+what made the flow feel disconnected: each screen knew its own middle and
+nothing knew the whole, so "what is happening" had no single place to be
+answered from and two of the three screens could not answer it at all once
+something had gone wrong.
+
+| module | owns |
+| ------ | ---- |
+| `types.ts` | the `Journey` object, 13 states, guidance levels |
+| `machine.ts` | legal transitions as data; illegal events rejected, not applied |
+| `pacer.ts` | when to speak unprompted — the heartbeat and the question re-ask |
+| `guide.ts` | what to answer when asked; deterministic, never generative |
+| `present.ts` | journey → headline, detail, actions, progress step |
+
+`/bus/board` is the gate this created room for. See CLAUDE.md for both
+invariants it establishes.
+
+**Three states from the brief are deliberately absent**, and the absences are
+the honest part. `BUS_APPROACHING` and `BUS_ARRIVED` collapse into `bus_due`,
+because separating them needs a vehicle to watch and we have a timetable.
+`WALKING_TO_DESTINATION` is not modelled: turn-by-turn after alighting needs a
+compass heading and pedestrian data this repo has no source for, and "walk
+straight for eighty metres" invented from a bearing is the kind of confident
+wrong instruction that costs more than saying nothing.
+
+**Distances are shown, not spoken.** `num_` clips run to 40, so a spoken metre
+count would be silent for most values. The screen shows metres; the voice says
+"the stop is near".
+
+### The screens are on it now
+
+`/bus/wait`, `/bus/board` and `/bus/ride` all render `present(journey)` through
+one `JourneySurface` — top: where you are in the journey; centre: the one fact
+that matters; bottom: the contextual actions, primary first. No cards, no
+dashboard.
+
+- **`/bus/wait`** — `Phase` became `InputMode`, and the three failure phases
+  (`no-location`, `no-stop`, `no-route`) are journey faults, so the same cause
+  gets the same phrase from anywhere in the app.
+- **`/bus/board`** — the gate. Three answers now: boarded / not boarded / not
+  sure.
+- **`/bus/ride`** — the countdown engine, recorder and audio-lifecycle
+  instrumentation are untouched; what moved is the layer above them. The engine
+  feeds `position_updated`, and the count on screen and the count in the rider's
+  ear are now the same number from the same call. Arrival raises the **exit**
+  question rather than ending the journey.
+- **`Асуух`** — one action per active state, opening a short contextual list of
+  the questions that are answerable *now*. Deliberately not a chat box: composing
+  a sentence at a bus stop, without sight, is the most expensive interaction
+  available. Closed entirely while a confirmation is open.
+- **`/settings`** — guidance level (minimal / standard / detailed) and the
+  heartbeat switch, persisted, spoken on change. Volume and detector sensitivity
+  are still absent; both need machinery that does not exist yet, and two working
+  controls beat four where two do nothing.
+
+### The two-platform fix
+
+Reported as "when they have chosen the bus, it is chaos" — and it was, for one
+structural reason. The planner searches every platform within 400 m and picks
+whichever reaches the destination. That is routinely **not** the platform the
+rider is standing on, and three things then went wrong at once:
+
+1. **The plan never named its boarding platform.** It spoke route, stop count
+   and time. A rider at `Сансар /Урд/` heard "Ч:35, twelve stops, about five
+   minutes" while the plan boarded at `Сансар /Хойд/` across the way.
+2. **`/bus/board` hard-coded `distanceToStopM: 0`**, with a comment claiming the
+   wait screen had located the rider at that stop. It had not. The journey
+   skipped `walking_to_stop` entirely and started a countdown for a kerb the
+   rider had not reached.
+3. **`destinationIndex` was passed as `-1`** from the wait screen.
+
+All three fixed. The handoff now carries `boardingDistanceM` measured from the
+live fix, the machine picks `walking_to_stop` on its own, the walk is watched by
+GPS, and "Би буудал дээр байна" is handled as the manual override for a drifting
+fix. See CLAUDE.md for the measurements behind it.
+
+## Ask the Room — the engine
+
+`lib/ask/` — 49 tests. A question in, a spoken answer out, routed to the
+cheapest capability that can serve it.
+
+| module | owns |
+| ------ | ---- |
+| `capabilities.ts` | semantic goals → detector classes, **derived from `DETECTION_CLASSES`** |
+| `intent.ts` | utterance → intent + goal, token-boundary matching over folded text |
+| `spatial.ts` | bearing bands from the real 69° HFOV, distance phrasing, confidence register |
+| `answer.ts` | Tier 1 answers: find, count, path, environment |
+| `context.ts` | what "it" binds to, and when it expires |
+| `router.ts` | the tier decision; returns an answer or an escalation request |
+| `providers.ts` | OCR and VLM seams — typed, **not implemented, not faked** |
+
+**Seven of the twelve example questions resolve on-device**, because the detector
+already has `door`, `stairs`, `bench`, `table`, `sign`, `person` and `curb`.
+
+### Two things the suite caught that reading would not have
+
+**`fold()` collapses `хаана` ("where") to exactly `хана` ("wall").** Doubled
+letters are collapsed on purpose so ASR confusions match, and the side effect is
+that short Mongolian words contain one another afterwards. Substring matching
+routed "Хаана суух вэ" — *where can I sit* — to `find_obstacle`. Fixed by
+matching whole-token runs, and `хана` is deliberately absent from the obstacle
+keywords with the reason recorded there. **The same hazard applies anywhere else
+`fold()` output is substring-matched.**
+
+**An unreliable distance is only meaningful at the sentinel.**
+`estimateObjectDistance` returns `VERY_CLOSE_M` (0.3) with `reliable: false`
+when an object fills the frame — that one case means "very close". Any other
+unreliable figure is a number the geometry could not stand behind, and it
+becomes a direction with no distance.
+
+### Wired, and what that cost
+
+- **All 55 clips rendered.** `render-ui-audio.ts` against Azure — the CONFIRM,
+  TIMETABLE, ASSIST, SETTINGS, GUIDE and ASK vocabularies are on disk. Every
+  `ui_*` phrase in the app is now registered **and** rendered; there is no
+  backlog left. 1,128 characters of quota.
+- **OCR is real.** tesseract.js 7, self-hosted under `public/tesseract/` because
+  COEP blocks its CDN defaults exactly as it blocked onnxruntime's.
+  **`mon.traineddata`, not `eng`** — signage here is Cyrillic and the English
+  model reads it as confident noise. `npm run ocr:setup`, and `prebuild` runs it
+  so a fresh clone is never silently without OCR. 7.8 MB, gitignored: unlike
+  `public/wasm`, this one regenerates from a script.
+- **`components/modes/AskMode.tsx`** — camera, detector, push-to-talk, routing,
+  speech. Reached from the home list. Uses the same `vision-plan` degrade
+  machinery Walk mode does.
+- **`lib/tilt.ts`** — `requestTiltPermission` and `pitchFromBeta` extracted from
+  WalkMode, because both modes feed `CameraPose.pitchDeg` and a second copy is
+  how two modes come to disagree about how far away the same door is.
+
+### The `ui_` prefix is load-bearing
+
+The ASK clips were first written as `ask_*` and **would never have rendered or
+loaded**. Two consumers filter on the prefix — `render-ui-audio.ts` renders only
+`ui_*`, and `ManifestClipPlayer`'s default key set loads only `ui_*` — and both
+failures are silent. Renamed to `ui_ask_*`, with the reason recorded at the
+group.
+
+### Two test bugs found by fixing a third
+
+`assert.rejects` **must be awaited**. Unawaited, the assertion runs after the
+test has already passed and node reports it as stray async activity rather than
+as a failure — which is how a stale error-message assertion survived a green
+run. Fixed here and in `lib/journey/settings.test.ts`.
+
+### Not yet done
+
+- **The new clips are unrendered.** 40 phrases across `CONFIRM`, `TIMETABLE`,
+  `ASSIST`, `SETTINGS` and `GUIDE` are in `lib/ui/announcements.ts` and
+  registered in `lib/phrases.ts`, but no WAV exists yet. One command:
+  `npx tsx scripts/render-ui-audio.ts` (needs the Azure key). Until then the
+  queue reports each missing key once in the console with that command, and the
+  earcon and haptic carry the state. Mongolian is draft, pending the same native
+  review as the rest of the file.
+- **Pre-existing lint errors** in `lib/ui/useGestureNav.ts` and
+  `lib/ui/useVoiceJourney.ts` (`react-hooks/refs`, `set-state-in-effect`).
+  Untouched by this work and failing before it; `npm run lint` also still dies
+  with `RangeError: Invalid string length` on a binary in the project.
+- **`/bus/journey`** is still its own screen and has not been folded in.
+
 ## Open decisions
 
-- **Which detector to ship.** `public/models/yoloe-11s.onnx` is fp32 @320,
-  37.2 MB. int8 quantizes to 9.6 MB but dropped a person at 0.90 confidence
-  in testing, and its `ConvInteger` ops force the CPU path. fp16 (~18.6 MB,
-  keeps WebGPU) is the recommendation but is not built yet.
+- **Which detector to ship.** `public/models/yoloe-11s.onnx` is fp32, 37.2 MB,
+  with a static 640×640 input — *not* @320, as this line said until the iOS
+  memory work measured it. int8 quantizes to 9.6 MB but dropped a person at 0.90
+  confidence in testing, and its `ConvInteger` ops force the CPU path. fp16
+  (~18.6 MB, keeps WebGPU) is the recommendation and is still not built. It is
+  now the largest single term in the peak that kills an iPhone, so it is no
+  longer only a bandwidth question.
 - **Debounce.** CLAUDE.md says repeats debounce by class for 3s; WalkMode
   currently uses per-urgency windows of 2s/4s/8s keyed on the whole spoken
   sequence. Reconcile.
-- `public/models/yolo-world.onnx` (50 MB) is dead and still shipped.
 
 ## Dev
 
