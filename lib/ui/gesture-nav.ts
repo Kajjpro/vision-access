@@ -35,7 +35,17 @@ export type Gesture =
   | { type: "repeat" }
   | { type: "whereAmI" }
   | { type: "jumpForward" }
-  | { type: "jumpBack" };
+  | { type: "jumpBack" }
+  /**
+   * Press-and-hold edges, emitted ONLY in hold mode — see `setHoldMode`.
+   *
+   * Push-to-talk is the one interaction in this app that needs the duration of
+   * a press rather than its completion: the microphone opens on the way down
+   * and closes on the way up. Every other gesture here is a completed act,
+   * which is why these are the only two edges in the vocabulary.
+   */
+  | { type: "holdStart" }
+  | { type: "holdEnd" };
 
 /**
  * Thresholds tuned for a gloved hand on a moving bus, NOT for a precise finger
@@ -91,6 +101,9 @@ export class GestureRecognizer {
   private lastTapAt: number | null = null;
   private lastTapPos: { x: number; y: number } | null = null;
   private longPressFired = false;
+  private holdMode = false;
+  /** Latched at holdStart so the release edge fires even if the mode changed. */
+  private holdStarted = false;
   private emitted: Gesture[] = [];
 
   /** Time of the earliest active contact, for long-press timing. */
@@ -130,10 +143,31 @@ export class GestureRecognizer {
       const track = [...this.tracks.values()][0];
       if (track.maxDrift <= this.thresholds.longPressMaxDriftPx) {
         this.longPressFired = true;
-        this.emitted.push({ type: "whereAmI" });
+        if (this.holdMode) {
+          this.holdStarted = true;
+          this.emitted.push({ type: "holdStart" });
+        } else {
+          this.emitted.push({ type: "whereAmI" });
+        }
       }
     }
     return this.emitted;
+  }
+
+  /**
+   * Turn a long press into a hold rather than "where am I", for the duration of
+   * a screen phase that is listening.
+   *
+   * A mode rather than a second gesture because the two meanings genuinely
+   * conflict: both are "one finger, held still", and a user cannot be asked to
+   * distinguish them. The screen knows which one it wants — during the question
+   * "where are you going?" a held finger means speak, and at no other time.
+   *
+   * Turning the mode off mid-hold still emits `holdEnd` on release: a flag
+   * change must never be able to leave the microphone open.
+   */
+  setHoldMode(on: boolean): void {
+    this.holdMode = on;
   }
 
   reset(): void {
@@ -141,6 +175,7 @@ export class GestureRecognizer {
     this.peakTouches = 0;
     this.interactionStart = null;
     this.longPressFired = false;
+    this.holdStarted = false;
   }
 
   private onStart(event: RawEvent) {
@@ -186,11 +221,22 @@ export class GestureRecognizer {
     const fingers = this.peakTouches;
     const duration = event.t - (this.interactionStart ?? event.t);
     const wasLongPress = this.longPressFired;
+    const wasHolding = this.holdStarted;
 
     this.tracks.clear();
     this.interactionStart = null;
     this.peakTouches = 0;
     this.longPressFired = false;
+    this.holdStarted = false;
+
+    // The release edge of push-to-talk. Emitted before the early return below,
+    // because a hold that opened the microphone MUST close it — a lift that
+    // produced no event would leave it live until the recognizer's own
+    // timeout, recording a rider who believes they have stopped talking.
+    if (wasHolding) {
+      this.emitted.push({ type: "holdEnd" });
+      return;
+    }
 
     if (tracks.length === 0 || wasLongPress) return;
 

@@ -7,32 +7,79 @@ pre{background:#111;color:#0f0;padding:14px;border-radius:8px;white-space:pre-wr
 <h1>mn-MN recognition test</h1>
 <p>Open this on the target <b>Android phone in Chrome</b> and press the button. It reports whether
 Chrome's speech engine accepts Mongolian. Needs a network connection — recognition is server-side.</p>
+<p>It also measures the two things the app's accuracy now depends on: <b>how many alternatives</b>
+the engine returns for a Mongolian place name, and <b>how long each phase takes</b> on this phone.
+If mn-MN comes back with only one alternative, searching them all buys nothing and
+<code>MAX_ALTERNATIVES</code> is dead weight.</p>
 <button id="go">Test mn-MN</button>
 <button id="go-en">Test en-US (control)</button>
 <pre id="out">ready</pre>
 <script>
 const out = document.getElementById("out");
 const log = (m) => { out.textContent += "\n" + m; };
+
 function probe(lang) {
   out.textContent = "testing " + lang + "…";
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) return log("RESULT: SpeechRecognition API not present at all");
+
   const r = new SR();
-  r.lang = lang; r.continuous = false; r.interimResults = true;
+  r.lang = lang;
+  r.continuous = false;
+  r.interimResults = true;
+  // The app asks for 6. Ask for the same here or this measures a different thing.
+  r.maxAlternatives = 6;
+
+  const t0 = performance.now();
+  const at = () => "+" + Math.round(performance.now() - t0) + "ms";
+  const mark = {};
   let got = false;
-  for (const ev of ["start","audiostart","soundstart","speechstart","speechend","audioend","end"])
-    r["on"+ev] = () => log("event: " + ev);
-  r.onresult = (e) => { got = true; log("HEARD: " + JSON.stringify(e.results[0][0].transcript) + " (confidence " + e.results[0][0].confidence + ")"); };
+
+  for (const ev of ["start","audiostart","soundstart","speechstart","speechend","audioend","end"]) {
+    r["on" + ev] = () => { mark[ev] = performance.now() - t0; log("event: " + ev + " " + at()); };
+  }
+
+  r.onresult = (e) => {
+    const result = e.results[0];
+    if (!e.results[0].isFinal) return;   // interim — keep waiting for the final
+    got = true;
+    const n = result.length;
+    log("ALTERNATIVES: " + n + " " + at());
+    for (let i = 0; i < n; i++) {
+      log("  [" + i + "] " + JSON.stringify(result[i].transcript) +
+          " (confidence " + result[i].confidence + ")");
+    }
+    if (n === 1) log("NOTE: engine returned ONE alternative — searching alternatives buys nothing for " + lang);
+  };
+
   r.onerror = (e) => {
-    log("ERROR: " + e.error);
+    log("ERROR: " + e.error + " " + at());
     if (e.error === "language-not-supported") log("RESULT: " + lang + " is NOT SUPPORTED");
     else if (e.error === "no-speech") log("RESULT: engine accepted " + lang + " but heard nothing — say a word and retry");
     else if (e.error === "not-allowed") log("RESULT: microphone permission denied — grant it and retry");
     else if (e.error === "network") log("RESULT: network required and unavailable");
   };
-  r.onend = () => log(got ? "RESULT: " + lang + " WORKS" : "(ended)");
-  try { r.start(); log("started — say a Mongolian place name, e.g. Сансар"); } catch (e) { log("throw: " + e); }
+
+  r.onend = () => {
+    if (!got) return log("(ended) " + at());
+    log("RESULT: " + lang + " WORKS");
+    // These are the numbers to check the app's phase budgets against. On a
+    // cheap Android the mic-open delay is the one that swallows a first word.
+    const ms = (k) => (mark[k] === undefined ? "—" : Math.round(mark[k]) + "ms");
+    log("TIMING: start→audiostart " + ms("audiostart") +
+        ", speechstart " + ms("speechstart") +
+        ", speechend " + ms("speechend") +
+        ", end " + ms("end"));
+  };
+
+  try {
+    r.start();
+    log("started — say a Mongolian place name, e.g. Сансар");
+  } catch (e) {
+    log("throw: " + e);
+  }
 }
+
 document.getElementById("go").onclick = () => probe("mn-MN");
 document.getElementById("go-en").onclick = () => probe("en-US");
 </script>

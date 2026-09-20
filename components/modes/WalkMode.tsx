@@ -18,6 +18,8 @@ import {
 import { openCamera, requestTiltPermission } from "@/lib/camera";
 import { nameMinScore } from "@/lib/coco";
 import { clearMark, mark, takeCrashStage } from "@/lib/breadcrumb";
+import { pitchFromBeta } from "@/lib/tilt";
+import { pinPlan, pinnedPlan, planFor } from "@/lib/vision-plan";
 import { PHRASES } from "@/lib/phrases";
 import { clearestDirection, isApproaching, isOverhead } from "@/lib/path";
 import { Tracker } from "@/lib/tracker";
@@ -400,14 +402,11 @@ function getBattery(): Promise<BatteryLike> | null {
 }
 
 /**
- * `beta` is the front-to-back tilt: 90 with the phone held upright, 0 laid flat.
- * The rear camera points level at beta 90, so downward pitch is 90 - beta.
+ * `pitchFromBeta` is NOT redefined here. It moved to lib/tilt.ts when Ask mode
+ * needed the same function, because both modes feed `CameraPose.pitchDeg` and a
+ * second copy is how two modes come to disagree about how far away the same
+ * door is.
  */
-function pitchFromBeta(beta: number | null): number | null {
-  if (beta === null || Number.isNaN(beta)) return null;
-  return Math.min(80, Math.max(0, 90 - beta));
-}
-
 export default function WalkMode({
   onBack,
   initialStream,
@@ -876,6 +875,22 @@ export default function WalkMode({
     workerRef.current = worker;
     mark("worker-spawned");
 
+    /**
+     * How hard the worker is allowed to push, decided HERE because the evidence
+     * lives in localStorage and a worker cannot read it.
+     *
+     * On iOS a tab killed for memory reloads with no error, no log and no
+     * exception — the app comes back on the home menu and the user tries again,
+     * which is the loop reported from the phone. `crashedAt` is the only trace
+     * that run left, so if it died with the model in memory the next attempt is
+     * the cheap configuration, and that choice is pinned rather than re-derived:
+     * a lean run SUCCEEDS, which clears the breadcrumb, which would otherwise
+     * send the launch after it straight back into the crash.
+     */
+    const plan = planFor({ pinned: pinnedPlan(), crashStage: crashedAt });
+    if (plan.id !== "full") pinPlan(plan.id);
+    worker.postMessage({ type: "start", plan });
+
     worker.onmessage = (ev: MessageEvent<WorkerResponse>) => {
       const msg = ev.data;
 
@@ -895,8 +910,14 @@ export default function WalkMode({
 
       if (msg.type === "ready") {
         workerReadyRef.current = true;
-        setModelStatus(`model ready · ${msg.backend}`);
+        setModelStatus(`model ready · ${msg.backend} · ${msg.plan}`);
         mark("model-ready", msg.backend);
+        // Pin what actually WORKED, not what was asked for. The worker falls
+        // back on its own when WebGPU wedges, and that fallback is the most
+        // memory-expensive path there is — two sessions built back to back.
+        // Recording the outcome means the next launch goes straight to the
+        // configuration that survived instead of paying for the discovery again.
+        if (msg.plan !== "full") pinPlan(msg.plan);
         return;
       }
 
@@ -1237,7 +1258,9 @@ export default function WalkMode({
     };
     // speak/play only touch refs, so the loop does not need rebuilding when
     // they change identity.
-  }, [running, announce]);
+    // crashedAt is read once at mount and never set again, so it cannot
+    // re-trigger this; it is listed because the plan is derived from it.
+  }, [running, announce, crashedAt]);
 
   return (
     <div className="w-screen h-screen bg-black relative">

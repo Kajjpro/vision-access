@@ -25,9 +25,39 @@ export type GestureNavOptions<T> = {
   onBack?: () => void;
   onRepeat?: () => void;
   onWhereAmI?: (option: ListOption<T> | null) => void;
+  /**
+   * Push-to-talk. While true a long press emits hold edges instead of
+   * "where am I" — the two are the same physical gesture and cannot coexist.
+   * Set it only for the phases that are actually listening.
+   */
+  holdMode?: boolean;
+  onHoldStart?: () => void;
+  onHoldEnd?: () => void;
+  /**
+   * Fired the instant a finger lands in hold mode, BEFORE the press is known to
+   * be a hold.
+   *
+   * `holdStart` arrives from the 600 ms timer below, and a timer callback carries
+   * no user activation — which iOS requires before it will show the microphone
+   * prompt. So the microphone is asked for here, in the touch handler, where the
+   * activation still exists; `onHoldStart` then gets a stream that is already
+   * open. A press that turns out not to be a hold costs a warm microphone that
+   * closes itself seconds later, unused.
+   */
+  onHoldPrewarm?: () => void;
   /** Two-finger vertical swipe distance, in options. */
   jumpSize?: number;
   enabled?: boolean;
+  /**
+   * Changes whenever the list becomes a DIFFERENT list — normally the screen's
+   * phase. The cursor jumps back to the top when it changes.
+   *
+   * Without this the index carries over: selecting the second item of a
+   * two-item menu and landing on the second item of the hundred-item list
+   * behind it. A sighted user sees where they are; someone navigating by ear
+   * hears item two and has no way to know they skipped item one.
+   */
+  resetKey?: string | number;
   /**
    * First refusal on every gesture. Return true to consume it.
    *
@@ -40,6 +70,7 @@ export type GestureNavOptions<T> = {
 
 export function useGestureNav<T>({
   options, announce, onSelect, onBack, onRepeat, onWhereAmI, jumpSize = 5, enabled = true, intercept,
+  resetKey, holdMode = false, onHoldStart, onHoldEnd, onHoldPrewarm,
 }: GestureNavOptions<T>) {
   const [index, setIndex] = useState(0);
   const recognizer = useMemo(() => new GestureRecognizer(), []);
@@ -48,6 +79,23 @@ export function useGestureNav<T>({
 
   indexRef.current = index;
   optionsRef.current = options;
+
+  /**
+   * Send the cursor to the top when the list is replaced.
+   *
+   * Adjusted DURING RENDER rather than in an effect — the documented React
+   * pattern for state derived from a changing prop. An effect would render the
+   * wrong position first and correct it after, and on this screen the "wrong
+   * position" is spoken aloud before it gets fixed.
+   */
+  const [seenResetKey, setSeenResetKey] = useState(resetKey);
+  if (resetKey !== seenResetKey) {
+    setSeenResetKey(resetKey);
+    // `indexRef` is deliberately NOT touched here. Setting state during render
+    // makes React re-run this component immediately, and the assignment above
+    // re-syncs the ref from the new index on that pass.
+    setIndex(0);
+  }
 
   // Keep the cursor inside a list that changed under it.
   useEffect(() => {
@@ -96,14 +144,43 @@ export function useGestureNav<T>({
         case "whereAmI":
           onWhereAmI?.(list[indexRef.current] ?? null);
           break;
+        case "holdStart":
+          vibrate(HAPTICS.select);
+          onHoldStart?.();
+          break;
+        case "holdEnd":
+          onHoldEnd?.();
+          break;
       }
     },
-    [jumpSize, move, onBack, onRepeat, onSelect, onWhereAmI],
+    [jumpSize, move, onBack, onHoldEnd, onHoldStart, onRepeat, onSelect, onWhereAmI],
   );
+
+  // Mode changes take effect on the NEXT press, never mid-gesture: the
+  // recognizer latches a hold when it starts so the release still lands.
+  useEffect(() => {
+    holdModeRef.current = holdMode;
+    prewarmRef.current = onHoldPrewarm;
+    recognizer.setHoldMode(holdMode);
+  }, [holdMode, onHoldPrewarm, recognizer]);
+
+  /**
+   * Read through refs, synced in the same effect that sets the recogniser's
+   * mode below, so the prewarm decision uses the CURRENT mode without
+   * rebuilding `feed` — and therefore the touch handlers — on every phase
+   * change. Rebuilding them mid-press is how a release lands on a recogniser
+   * that never saw the press.
+   */
+  const holdModeRef = useRef(holdMode);
+  const prewarmRef = useRef(onHoldPrewarm);
 
   const feed = useCallback(
     (event: RawEvent) => {
       if (!enabled) return;
+      // The last moment that still carries a user activation. See onHoldPrewarm.
+      if (event.phase === "start" && holdModeRef.current && event.touches.length === 1) {
+        prewarmRef.current?.();
+      }
       for (const gesture of recognizer.handle(event)) apply(gesture);
     },
     [apply, enabled, recognizer],

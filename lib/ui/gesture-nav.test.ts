@@ -263,3 +263,74 @@ test("stale history is dropped rather than suggested forever", () => {
   const list = buildDestinationList(seq, 0, history, "R1");
   assert.equal(list[0].stopId, "s1", "a trip from last year is not a suggestion");
 });
+
+// ----------------------------------------------------- push-to-talk edges
+
+/** One finger, held still, then lifted. The push-to-talk gesture. */
+function hold(r: GestureRecognizer, { liftAt = 2000 } = {}): Gesture[] {
+  const out: Gesture[] = [];
+  out.push(...r.handle({ phase: "start", touches: [{ id: 0, x: 200, y: 400, t: 1000 }], t: 1000 }));
+  out.push(...r.tick(1000 + THRESHOLDS.longPressMs + 10));
+  out.push(...r.handle({ phase: "end", touches: [{ id: 0, x: 204, y: 403, t: liftAt }], t: liftAt }));
+  return out;
+}
+
+test("hold mode turns a long press into microphone edges", () => {
+  const r = new GestureRecognizer();
+  r.setHoldMode(true);
+  assert.deepEqual(hold(r), [{ type: "holdStart" }, { type: "holdEnd" }]);
+});
+
+test("without hold mode the same gesture still means where am I", () => {
+  const r = new GestureRecognizer();
+  assert.deepEqual(hold(r), [{ type: "whereAmI" }]);
+});
+
+test("a hold that started still CLOSES when the mode is turned off mid-press", () => {
+  // Otherwise a phase change while the rider is speaking leaves the microphone
+  // open until the recognizer's own timeout, recording someone who believes
+  // they have stopped.
+  const r = new GestureRecognizer();
+  r.setHoldMode(true);
+  r.handle({ phase: "start", touches: [{ id: 0, x: 200, y: 400, t: 1000 }], t: 1000 });
+  assert.deepEqual(r.tick(1000 + THRESHOLDS.longPressMs + 10), [{ type: "holdStart" }]);
+  r.setHoldMode(false);
+  const released = r.handle({ phase: "end", touches: [{ id: 0, x: 200, y: 400, t: 2000 }], t: 2000 });
+  assert.deepEqual(released, [{ type: "holdEnd" }], "the microphone was left open");
+});
+
+test("a touch cancelled by the system still closes the microphone", () => {
+  // iOS fires touchcancel readily; useGestureNav feeds it as an end.
+  const r = new GestureRecognizer();
+  r.setHoldMode(true);
+  r.handle({ phase: "start", touches: [{ id: 0, x: 200, y: 400, t: 1000 }], t: 1000 });
+  r.tick(1000 + THRESHOLDS.longPressMs + 10);
+  assert.deepEqual(
+    r.handle({ phase: "end", touches: [{ id: 0, x: 200, y: 400, t: 1800 }], t: 1800 }),
+    [{ type: "holdEnd" }],
+  );
+});
+
+test("a quick tap in hold mode is not a hold — it never opened anything", () => {
+  const r = new GestureRecognizer();
+  r.setHoldMode(true);
+  r.handle({ phase: "start", touches: [{ id: 0, x: 200, y: 400, t: 1000 }], t: 1000 });
+  const quick = r.handle({ phase: "end", touches: [{ id: 0, x: 202, y: 401, t: 1100 }], t: 1100 });
+  assert.deepEqual(quick, [], "a single tap alone still does nothing");
+});
+
+test("holdEnd fires exactly once", () => {
+  const r = new GestureRecognizer();
+  r.setHoldMode(true);
+  hold(r);
+  const again = r.handle({ phase: "end", touches: [{ id: 0, x: 200, y: 400, t: 2100 }], t: 2100 });
+  assert.deepEqual(again, [], "a second release re-closed the microphone");
+});
+
+test("double-tap, swipe left and two-finger tap keep their meanings in hold mode", () => {
+  // The voice flow maps these to confirm / reject / restart. They must not
+  // change behaviour just because the screen is listening.
+  const r = new GestureRecognizer();
+  r.setHoldMode(true);
+  assert.deepEqual(run(sloppySwipe({ dx: -180, dy: 0, fingers: 1, seed: 7 }), r), [{ type: "back" }]);
+});

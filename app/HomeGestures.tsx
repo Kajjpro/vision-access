@@ -18,12 +18,19 @@ import { useRouter } from "next/navigation";
 import { GestureSurface, CurrentOption, type A11yOption } from "@/components/GestureSurface";
 import { audioContext, hasClip, loadClips, playSequence, stopAll } from "@/lib/audio";
 import { GESTURE, MODE, POSITION, SCREEN } from "@/lib/ui/announcements";
+import { armMicrophonePrompt, primeArmedMicrophone } from "@/lib/ui/microphone";
 import { useGestureNav } from "@/lib/ui/useGestureNav";
 import type { ListOption } from "@/lib/ui/gesture-nav";
 
 const WalkMode = dynamic(() => import("@/components/modes/WalkMode"), { ssr: false });
+/**
+ * Ask the Room. Loaded on demand like Walk mode — it pulls the detector, the
+ * OCR runtime and the camera, none of which a rider who only wanted a bus
+ * should pay for.
+ */
+const AskMode = dynamic(() => import("@/components/modes/AskMode"), { ssr: false });
 
-type ModeId = "walk" | "scene" | "bus" | "settings";
+type ModeId = "walk" | "ask" | "scene" | "bus" | "settings";
 
 type Mode = {
   id: ModeId;
@@ -31,15 +38,15 @@ type Mode = {
   label: string;
   position: string;
   route?: string;
-  component?: "walk";
+  component?: "walk" | "ask";
 };
 
 /** Working modes first: a user should not swipe past two dead ends to reach the bus. */
 const MODES: Mode[] = [
   { id: "walk", clip: "mode_walk", label: MODE.walk.mn, position: POSITION.topLeft.mn, component: "walk" },
+  { id: "ask", clip: "mode_scene", label: MODE.scene.mn, position: POSITION.topRight.mn, component: "ask" },
   { id: "bus", clip: "mode_bus", label: MODE.bus.mn, position: POSITION.bottomLeft.mn, route: "/bus/wait" },
-  { id: "scene", clip: "mode_scene", label: MODE.scene.mn, position: POSITION.topRight.mn },
-  { id: "settings", clip: "mode_settings", label: MODE.settings.mn, position: POSITION.bottomRight.mn },
+  { id: "settings", clip: "mode_settings", label: MODE.settings.mn, position: POSITION.bottomRight.mn, route: "/settings" },
 ];
 
 const isReady = (m: Mode) => Boolean(m.route || m.component);
@@ -61,13 +68,17 @@ export function HomeGestures() {
   const lastSpokenRef = useRef<string[]>([]);
   const startedRef = useRef(false);
 
-  const say = useCallback((clips: string[]) => {
+  /** Returns how long the utterance occupies, so a caller can wait it out exactly. */
+  const say = useCallback((clips: string[]): number => {
     const playable = clips.filter(hasClip);
     lastSpokenRef.current = playable;
     // Interrupting matters: swiping quickly through options must not queue a
     // backlog of names that plays out long after the finger has moved on.
-    if (playable.length) playSequence(playable, { interrupt: true });
+    if (!playable.length) return 0;
+    return playSequence(playable, { interrupt: true });
   }, []);
+
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
   const options: ListOption<Mode>[] = useMemo(
     () => MODES.map((m) => ({ value: m, keys: [m.clip], label: `${m.label}, ${m.position}` })),
@@ -118,11 +129,33 @@ export function HomeGestures() {
 
     await loadClips(FIRST_CLIPS);
     setReady(true);
-    say([GESTURE.welcome.clip!, MODES[0].clip]);
+    const welcome = say([GESTURE.welcome.clip!, MODES[0].clip]);
 
     // The rest, in the background. A missing clip costs one phrase, not the
     // app's voice, so failures are logged rather than thrown.
     void loadClips().catch(() => {});
+
+    /**
+     * Explain the microphone HERE, once, at the calmest moment there is.
+     *
+     * The browser's permission dialog is a visual, unlabelled object; a rider
+     * meeting it for the first time while standing at a stop with a bus coming
+     * has no way to know what is being asked, and a refusal there costs the
+     * trip. So it is explained during the welcome and never raised again.
+     *
+     * The DIALOG itself opens on the next touch, not here — iOS only shows it
+     * inside a touch handler, and asking from this timer meant an iOS rider was
+     * told "voice input is unavailable" at startup on a device where it works.
+     * See lib/ui/microphone.ts.
+     *
+     * Deliberately after the welcome finishes: two voices at once is no voice.
+     */
+    void (async () => {
+      await sleep(welcome * 1000 + 400);
+      armMicrophonePrompt({
+        speak: (clips) => say(clips.filter((c): c is string => Boolean(c))),
+      });
+    })().catch(() => {});
   }, [say]);
 
   useEffect(() => () => stopAll(), []);
@@ -135,8 +168,16 @@ export function HomeGestures() {
 
   const handlers = {
     ...nav.handlers,
-    onTouchStart: (e: React.TouchEvent) => { void start(); nav.handlers.onTouchStart(e); },
+    onTouchStart: (e: React.TouchEvent) => {
+      void start();
+      // The armed permission dialog, opened from inside the touch itself — the
+      // only place iOS will show it. A no-op on every touch but the one.
+      void primeArmedMicrophone();
+      nav.handlers.onTouchStart(e);
+    },
   };
+
+  if (active === "ask") return <AskMode />;
 
   if (active === "walk") {
     return <WalkMode onBack={() => { setActive(null); say([SCREEN.home.clip!]); }} />;

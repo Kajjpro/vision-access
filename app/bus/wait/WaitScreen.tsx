@@ -1,52 +1,156 @@
 "use client";
 
 /**
- * Mode A — waiting at a stop. Rebuilt on the gesture model.
+ * Mode A — destination first.
  *
- * WHAT CHANGED AND WHY:
+ * The first question is "хаашаа явах вэ?", never "which route". Route selection
+ * is this screen's problem: the user says or picks a place, and the planner
+ * works out which bus serves it.
  *
- * The old screen was a column of buttons: press to locate, press to confirm,
- * press a route. Every one of those required finding a target on glass, which
- * is the thing a blind passenger cannot do. Now:
+ * The flow, all by ear:
  *
- *   - Locating starts BY ITSELF on arrival. Nothing to press.
- *   - Everything else is one list, scrolled by ear, selected by double-tap
- *     anywhere.
- *   - SAYING the destination is the first option, because scrolling 36 stops
- *     by ear to find one is not a real option for a daily journey.
+ *   locate (automatic)  →  destination list  →  plan  →  wait  →  boarding
  *
- * Voice never becomes the only path: if recognition is unsupported, offline, or
- * simply misheard, the route list is right behind it and the app says so.
+ * Nothing here requires sight. Every phase speaks itself on entry, the option
+ * list is scrolled by swipe and selected by double-tap anywhere, and a long
+ * press re-states where you are at any point. The destination list leads with
+ * the places this user actually goes, because most journeys repeat.
+ *
+ * ARRIVAL TIMES ARE ALWAYS HEDGED. We ship schedule-only — the City vehicle
+ * feed is closed to us — so every minute count comes from the OTP proxy or a
+ * headway, and lib/transit/announce.ts puts "ойролцоогоор" in front of it with
+ * no way for this file to opt out.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { CurrentOption, GestureSurface, type A11yOption } from "@/components/GestureSurface";
-import { audioContext, hasClip, loadClips, loadTransitClips, playSequence, stopAll } from "@/lib/audio";
-import { DEGRADED, GESTURE, SCREEN, VOICE, WAIT } from "@/lib/ui/announcements";
+import {
+  hasClip, loadClips, loadTransitClips, playListenCue, playSequence, stopAll, audioContext,
+} from "@/lib/audio";
+import { discardWarmMicrophone, warmMicrophone } from "@/lib/speech/mic";
+import { DEGRADED, GESTURE, JOURNEY, LIST, SCREEN, VOICE, WAIT } from "@/lib/ui/announcements";
 import { useGestureNav } from "@/lib/ui/useGestureNav";
-import type { ListOption } from "@/lib/ui/gesture-nav";
-import { detectVoiceSupport, listenOnce, matchStops } from "@/lib/ui/voice";
+import { vibrate, type ListOption } from "@/lib/ui/gesture-nav";
+/**
+ * The engine here used to be `detectVoiceSupport` + `listen` from
+ * `lib/ui/voice.ts` — Web Speech only. Chrome does not list `mn-MN`, so this
+ * screen answered "voice input is unavailable" every time a rider asked to
+ * speak a destination. Swapped to the capture path `/bus/journey` already uses
+ * and that is verified at 95% on real stop names. Same contract, working
+ * engine; see lib/ui/listen-any.ts.
+ */
+import { detectCaptureSupport, listenAnyEngine } from "@/lib/ui/listen-any";
+import {
+  buildStopGroups, frequentDestinations, loadSearchHistory, recordDestination,
+  saveSearchHistory, searchStopsAny, type SearchHistory, type StopGroup,
+} from "@/lib/ui/stop-search";
+import { describeCountdown } from "@/lib/transit/announce";
+import { createEarconPlayer } from "@/lib/transit/earcons";
+import { armRecordingFromUrl } from "@/lib/transit/recorder";
+import {
+  becameDue, countdownFor, countdownKeys, COUNTDOWN_CLIP_IDS, crossedAlert, DUE_VIBRATION, earconForMark,
+  isStale, MAX_SPOKEN_NUMBER, waitVibration, type Countdown,
+} from "@/lib/transit/eta";
+import { planJourney, reachableFrom, type JourneyOption } from "@/lib/transit/planner";
 import { buildHandoff, writeHandoff } from "@/lib/transit/handoff";
-import { findNearestStop, resolveByRoute, routeChoicesFor, type StopCandidate } from "@/lib/transit/geo";
+import { answer } from "@/lib/journey/guide";
+import { transition, type JourneyEvent } from "@/lib/journey/machine";
+import { present } from "@/lib/journey/present";
+import { createJourney, evidenceFor, type Journey } from "@/lib/journey/types";
+import { findNearestStop, haversine, stopsWithin } from "@/lib/transit/geo";
+import { boardingRelation, platformCalloutKeys } from "@/lib/transit/platform";
+import { browseWindowKeys } from "@/lib/transit/preload";
+import { locate as runLocate } from "@/lib/transit/locate";
 import type { NextArrivalsResponse, Route, RouteStops, Stop, StopRoutes } from "@/lib/transit/types";
 
-type Phase = "locating" | "no-location" | "no-stop" | "menu" | "listening" | "confirm-voice" | "routes";
+/**
+ * INPUT MODE — not journey state. The distinction is the whole refactor.
+ *
+ * A rider speaking a destination, scrolling a list, or hearing a read-back is in
+ * ONE journey state throughout: `selecting_destination`. What differs is how
+ * this screen is taking input at that moment, and that is a property of the
+ * screen, not of the journey.
+ *
+ * Conflating them is what produced nine phases on one screen and no way to say
+ * where the rider was. The three former failure phases — `no-location`,
+ * `no-stop`, `no-route` — are gone from here entirely: they are journey FAULTS
+ * now (`journey.fault`), because they outlive this screen and the guide has to
+ * be able to answer for them from anywhere.
+ */
+type InputMode =
+  | "locating"
+  | "destinations"
+  | "listening"
+  | "confirm-destination"
+  | "browsing"
+  | "routes"
+  /** A fault is showing. The list is empty and the journey explains itself. */
+  | "blocked";
 
-/** Spoken before anything else on this screen, so it must decode first. */
+/** Spoken before anything else here, so these must decode first. */
 const FIRST_CLIPS = [
-  SCREEN.wait.clip!, WAIT.searching.clip!, WAIT.sayDestination.clip!, WAIT.browseRoutes.clip!,
-  WAIT.noStopNearby.clip!, DEGRADED.location.clip!, VOICE.prompt.clip!, VOICE.didYouSay.clip!,
+  SCREEN.wait.clip!, WAIT.searching.clip!, WAIT.noStopNearby.clip!,
+  JOURNEY.askDestination.clip!, JOURNEY.planning.clip!, JOURNEY.noRoute.clip!,
+  JOURNEY.routeNeededSuffix.clip!, JOURNEY.stopsToTravelSuffix.clip!,
+  JOURNEY.transferWarning.clip!, JOURNEY.liveUnavailable.clip!,
+  DEGRADED.location.clip!, VOICE.prompt.clip!, VOICE.didYouSay.clip!,
   VOICE.confirmHint.clip!, VOICE.noMatch.clip!, VOICE.unavailable.clip!,
-  "bus_you_are_at", "bus_at_stop_suffix",
+  // Spoken between recognition attempts. Absent from this list it decodes too
+  // late to play, and the retry arrives as unexplained silence.
+  VOICE.notUnderstood.clip!,
+  LIST.recentHeading.clip!, "bus_you_are_at", "bus_at_stop_suffix", "bus_approx_prefix",
 ];
+
+/**
+ * How far around the user to collect boarding platforms.
+ *
+ * Wider than the 150 m used to NAME a stop, and deliberately so: the two
+ * directions of a route share no stop ids, so a return journey boards from the
+ * opposite platform — which on ШҮ:1 sits 344 m away. Planning from a single
+ * platform makes return trips look unroutable (18 % of same-name pairs are
+ * further apart than 150 m), so every nearby platform is offered to the planner
+ * and it picks.
+ */
+const BOARDING_RADIUS_M = 400;
+
+/**
+ * Silence between the phone finishing a question and the microphone opening.
+ *
+ * Short, but not zero: the tail of a clip and the mic opening in the same
+ * instant means the engine's first audio frame is our own reverb, and a person
+ * needs a beat to register that a question has ended before they answer it.
+ */
+const PROMPT_GAP_MS = 250;
+
+/**
+ * How many boarding platforms get their own arrivals call.
+ *
+ * One per DISTINCT platform among the suggested plans, capped. Each is an
+ * upstream call against a gateway that locks the whole account out for ~14
+ * minutes when it is pushed (lib/transit/breaker.ts), and the planner offers at
+ * most MAX_OPTIONS routes anyway.
+ */
+const MAX_ARRIVAL_STOPS = 3;
+
+/**
+ * How often the arrivals are re-fetched while someone is actually waiting.
+ *
+ * Longer than the proxy's own 45 s cache, so most refreshes are free to the
+ * gateway and still newer than the window in which a schedule estimate drifts.
+ */
+const ARRIVALS_REFRESH_MS = 60_000;
+
+/** How often the derived countdown is recomputed. Minutes, not seconds. */
+const COUNTDOWN_TICK_MS = 10_000;
 
 type Choice =
   | { kind: "voice" }
   | { kind: "browse" }
-  | { kind: "route"; routeId: string }
-  | { kind: "otherStop" }
-  | { kind: "voiceMatch"; stopId: string; name: string };
+  /** "I am actually at this other stop" — corrects a low-confidence match. */
+  | { kind: "here"; stop: Stop }
+  | { kind: "destination"; group: StopGroup }
+  | { kind: "plan"; option: JourneyOption };
 
 export function WaitScreen({
   stops, routes, stopRoutes, routeStops,
@@ -55,273 +159,735 @@ export function WaitScreen({
   manifest?: unknown;
 }) {
   const router = useRouter();
-  const [phase, setPhase] = useState<Phase>("locating");
-  const [stop, setStop] = useState<Stop | null>(null);
-  const [candidates, setCandidates] = useState<StopCandidate[]>([]);
-  const [arrivals, setArrivals] = useState<NextArrivalsResponse | null>(null);
-  const [heard, setHeard] = useState<{ transcript: string; matches: { id: string; name: string }[] } | null>(null);
+  const [input, setInput] = useState<InputMode>("locating");
+  /**
+   * THE JOURNEY IS THE SOURCE OF TRUTH for anything that outlives this screen:
+   * which destination was confirmed, which route was chosen, and what has gone
+   * wrong. The input mode above is only about how this screen is taking input
+   * right now.
+   *
+   * This screen does not use `useJourney`. It speaks through `playSequence`,
+   * and adding an `AudioQueue` beside that would put two pipelines on one
+   * AudioContext — which CLAUDE.md forbids, because overlapping Mongolian
+   * speech is unintelligible and a rider cannot recover the message. So it
+   * drives the same pure modules with its own plumbing, exactly as the ride
+   * screen does.
+   */
+  const [journey, setJourney] = useState<Journey>(() => createJourney(Date.now()));
+
+  /**
+   * The one door into the machine, and a STABLE one.
+   *
+   * The updater form means this closes over nothing, so it never changes
+   * identity — which matters because locating and planning are long-running
+   * async callbacks, and a `send` that changed on every journey update would
+   * rebuild them mid-flight and let a stale closure drop the fault it was
+   * trying to raise.
+   */
+  const send = useCallback((event: JourneyEvent) => {
+    setJourney((current) => transition(current, event, Date.now()).journey);
+  }, []);
+  const [here, setHere] = useState<{ lat: number; lon: number } | null>(null);
+  const [nearbyStop, setNearbyStop] = useState<Stop | null>(null);
+  /**
+   * The other stops the fix could plausibly mean, offered so a wrong guess is
+   * correctable. With a coarse fix the top candidate is right about half the
+   * time, but the right one is almost always in this list.
+   */
+  const [nearbyOptions, setNearbyOptions] = useState<Stop[]>([]);
+  const [boardingIds, setBoardingIds] = useState<string[]>([]);
+  const [destination, setDestination] = useState<StopGroup | null>(null);
+  const [plans, setPlans] = useState<JourneyOption[]>([]);
+  const [candidates, setCandidates] = useState<StopGroup[]>([]);
+  const [history, setHistory] = useState<SearchHistory>({});
   const [voiceOff, setVoiceOff] = useState(false);
+  /**
+   * Arrivals keyed by the stop they were fetched FOR.
+   *
+   * A single response used to be fetched for `plans[0]`'s boarding stop and
+   * then matched against every option by route id alone. Boarding platforms are
+   * collected within 400 m and the two directions of a route share no stop ids,
+   * so the second and third suggestions routinely board somewhere else — and
+   * were given the first stop's times. The map makes that impossible: an option
+   * can only ever read the arrivals for its own platform.
+   */
+  const [arrivalsByStop, setArrivalsByStop] = useState<Map<string, NextArrivalsResponse>>(new Map());
+  /**
+   * The clock the countdowns are derived against.
+   *
+   * State rather than `Date.now()` at render, because the render has to happen
+   * for the number to change. Ticking it is what turns a frozen estimate into a
+   * countdown — see lib/transit/eta.ts.
+   */
+  const [now, setNow] = useState(() => Date.now());
   const [log, setLog] = useState<string[]>([]);
 
   const lastSpokenRef = useRef<string[]>([]);
   const startedRef = useRef(false);
+
   const routesById = useMemo(() => new Map(routes.map((r) => [r.id, r])), [routes]);
+  const stopsById = useMemo(() => new Map(stops.map((st) => [st.id, st])), [stops]);
+  const groups = useMemo(() => buildStopGroups(stops), [stops]);
 
   const note = useCallback((line: string) => setLog((l) => [line, ...l].slice(0, 30)), []);
 
-  const say = useCallback((clips: (string | undefined | null)[]) => {
-    const playable = clips.filter((c): c is string => Boolean(c)).filter(hasClip);
-    lastSpokenRef.current = playable;
-    if (playable.length) playSequence(playable, { interrupt: true });
+  /**
+   * The earcon channel. Synthesized, so it survives a total decode failure.
+   *
+   * Fire-and-forget with its own abort controller: this screen speaks through
+   * `playSequence` rather than the AudioQueue, so there is no drain loop to
+   * sequence the tone against the words. That is acceptable here because the
+   * wait-screen ladder fires on a MARK CROSSING — an event that happens at most
+   * four times in a wait — rather than continuously, so the tone leading the
+   * speech by a few tens of milliseconds is the whole interaction.
+   */
+  const playEarcon = useCallback((id: "soft" | "alert" | "urgent") => {
+    try {
+      const player = createEarconPlayer(() => audioContext());
+      void player.play(id, new AbortController().signal).catch(() => {
+        // The redundant channel must never cost the words that follow it.
+      });
+    } catch {
+      // No AudioContext yet — the first gesture has not happened.
+    }
   }, []);
 
-  // ------------------------------------------------------------ locate
+  /** Returns how long the utterance occupies, so a caller can wait for it exactly. */
+  const say = useCallback((clips: (string | undefined | null)[]): number => {
+    const playable = clips.filter((c): c is string => Boolean(c)).filter(hasClip);
+    lastSpokenRef.current = playable;
+    if (!playable.length) return 0;
+    return playSequence(playable, { interrupt: true });
+  }, []);
 
   /**
-   * Runs on arrival, unprompted.
+   * Speaks, and waits for the audio to ACTUALLY finish.
    *
-   * Requiring a button press to start was the old screen's first barrier: the
-   * user had to find something before the app would tell them anything.
+   * The voice flow used to wait a fixed 2200 ms — a guess at the length of a
+   * clip that TTS can re-render at any length. Guess short and the microphone
+   * opens while the phone is still speaking, so the engine transcribes our own
+   * question; guess long and there is dead air in which the user starts talking
+   * before anything is listening, and the first syllable of a Mongolian stop
+   * name is the most distinctive part of it. `playSequence` knows the real
+   * duration because it scheduled the clips on the audio clock.
    */
-  const locate = useCallback(() => {
-    setPhase("locating");
+  const sayAndWait = useCallback(
+    async (clips: (string | undefined | null)[]) => {
+      const seconds = say(clips);
+      await new Promise((r) => setTimeout(r, seconds * 1000 + PROMPT_GAP_MS));
+    },
+    [say],
+  );
+
+  // A warm microphone must never outlive the screen that opened it.
+  useEffect(() => () => { stopAll(); discardWarmMicrophone(); }, []);
+
+  // ---------------------------------------------------------- locate
+
+  /**
+   * Runs on arrival, unprompted. Nothing to find, nothing to press.
+   *
+   * Waits for GPS to CONVERGE rather than believing the first answer. The
+   * previous version asked once with `maximumAge: 30000`, which on a cold start
+   * hands back a cell-tower estimate hundreds of metres out — and then matched
+   * stops against it and reported "no stop nearby" while the user stood at one.
+   * See lib/transit/locate.ts.
+   */
+  const locate = useCallback(async () => {
+    setInput("locating");
     say([SCREEN.wait.clip, WAIT.searching.clip]);
 
-    if (!("geolocation" in navigator)) {
-      setPhase("no-location");
+    const outcome = await runLocate({
+      geolocation: typeof navigator !== "undefined" && "geolocation" in navigator ? navigator.geolocation : null,
+      onEvent: (e) => {
+        if (e.type === "improved") note(`fix ±${Math.round(e.accuracyM)}m`);
+        // Say something while GPS settles. Silence during a 12-second wait is
+        // indistinguishable from the app having died.
+        if (e.type === "progress") say([WAIT.stillLocating.clip]);
+      },
+    });
+
+    if (outcome.kind === "denied" || outcome.kind === "unavailable" || outcome.kind === "timeout") {
+      setInput("blocked"); send({ type: "failed", fault: "location_unavailable" });
+      note(`locate: ${outcome.kind}`);
       say([DEGRADED.location.clip]);
       return;
     }
 
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const at = { lat: pos.coords.latitude, lon: pos.coords.longitude };
-        const result = findNearestStop(at, stops);
-        note(`fix ±${Math.round(pos.coords.accuracy)}m → ${result.kind}`);
+    if (outcome.kind === "poor") {
+      // A signal problem, NOT a stop problem — different phrase, because the
+      // useful action is to move into the open rather than to walk off looking
+      // for a stop.
+      setInput("blocked"); send({ type: "failed", fault: "location_unavailable" });
+      note(`locate: poor fix ±${Math.round(outcome.best.accuracyM)}m`);
+      say([WAIT.gpsWeak.clip]);
+      return;
+    }
 
-        if (result.kind === "none") {
-          // No answer is a real answer. Naming a stop hundreds of metres away
-          // would be a confident lie the user cannot check.
-          setPhase("no-stop");
-          say([WAIT.noStopNearby.clip]);
-          return;
-        }
-        const found = result.kind === "ambiguous" ? result.candidates : result.candidates;
-        setCandidates(found);
-        setStop(found[0].stop);
-        setPhase("menu");
+    const { fix } = outcome;
+    const at = { lat: fix.lat, lon: fix.lon };
+    setHere(at);
 
-        // Fetch the names this screen is about to speak before speaking them.
-        // Only a handful — the nearby stops and the routes serving them.
-        const needed = [
-          ...found.map((c) => `stop_${c.stop.id}`),
-          ...(stopRoutes[found[0].stop.id] ?? []).map((r) => `route_${r}`),
-        ];
-        void loadTransitClips(needed).then(({ failed }) => {
-          if (failed.length) note(`${failed.length} names not yet rendered`);
-          say(["bus_you_are_at", `stop_${found[0].stop.id}`, "bus_at_stop_suffix", WAIT.sayDestination.clip]);
-        });
-      },
-      (err) => {
-        setPhase("no-location");
-        note(`geolocation: ${err.message}`);
-        say([DEGRADED.location.clip]);
-      },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 },
-    );
-  }, [note, say, stopRoutes, stops]);
+    // The search radius scales with the reported accuracy — a fixed 150 m
+    // assumes the phone is exactly where it says it is.
+    const nearest = findNearestStop(at, stops, { accuracyM: fix.accuracyM });
+    note(`fix ±${Math.round(fix.accuracyM)}m${outcome.converged ? " (converged)" : ""} → ${nearest.kind}`);
+
+    if (nearest.kind === "unusable-fix") {
+      setInput("blocked"); send({ type: "failed", fault: "location_unavailable" });
+      say([WAIT.gpsWeak.clip]);
+      return;
+    }
+
+    // Boarding platforms widen with accuracy too, for the same reason.
+    const reachable = stopsWithin(at, stops, BOARDING_RADIUS_M + Math.min(fix.accuracyM, 300))
+      .filter((c) => (stopRoutes[c.stop.id] ?? []).length > 0);
+    setBoardingIds(reachable.map((c) => c.stop.id));
+
+    if (nearest.kind === "none" || reachable.length === 0) {
+      setInput("blocked"); send({ type: "failed", fault: "no_stop_nearby" });
+      say([WAIT.noStopNearby.clip]);
+      return;
+    }
+
+    // Low confidence offers the list rather than asserting the first entry: the
+    // true stop is in the top three ~100 % of the time up to ±300 m, but the
+    // TOP one only about half the time, so the hedge is the honest wording.
+    const hedged = nearest.confidence === "low";
+    setCandidates([]);
+    const stop = nearest.candidates[0].stop;
+    setNearbyStop(stop);
+    setNearbyOptions(nearest.candidates.slice(0, 3).map((c) => c.stop));
+    setInput("destinations");
+    // A fix arrived and resolved. Clearing the fault here is what stops the
+    // guide answering "location unavailable" to a rider whose GPS came back.
+    send({ type: "recovered", to: "selecting_destination" });
+    send({ type: "destination_requested" });
+
+    void loadTransitClips(nearest.candidates.slice(0, 3).map((c) => `stop_${c.stop.id}`)).then(() => {
+      say([
+        hedged ? WAIT.approximateStop.clip : "bus_you_are_at",
+        `stop_${stop.id}`,
+        hedged ? null : "bus_at_stop_suffix",
+        JOURNEY.askDestination.clip,
+      ]);
+    });
+  }, [note, say, send, stopRoutes, stops]);
 
   const start = useCallback(async () => {
     if (startedRef.current) return;
     startedRef.current = true;
     audioContext();
+
+    /**
+     * Arm the field-test recorder here, not on the ride screen.
+     *
+     * The ride screen is only ever reached by `router.push("/bus/ride")`, which
+     * carries no query string — so `?record=1` had no way to survive the
+     * navigation, and putting it on the ride URL directly lands on a screen
+     * with no handoff, which refuses to start. Arming from the session that
+     * creates the handoff is the only path that has both.
+     */
+    const rec = armRecordingFromUrl(window.location.search, sessionStorage);
+    if (rec.armed) {
+      note("RECORDING ARMED — will capture the ride");
+      // Non-verbal on purpose: there is no rendered Mongolian for "recording",
+      // and an unrendered key would be dropped without a sound.
+      playEarcon("alert");
+    }
+    // Read on the first gesture rather than in a mount effect: localStorage
+    // does not exist during SSR, and seeding it from an effect costs a second
+    // render of a list the user may already be swiping through.
+    setHistory(loadSearchHistory(localStorage));
     await loadClips(FIRST_CLIPS);
     void loadClips().catch(() => {});
-    locate();
-  }, [locate]);
+    void locate();
+  }, [locate, note, playEarcon]);
 
-  useEffect(() => () => stopAll(), []);
-
-  // ------------------------------------------------------------ voice
+  // ------------------------------------------------------- destinations
 
   /**
-   * Ask, listen, then READ BACK. Nothing acts on what was heard.
+   * The places this user actually goes, first.
    *
-   * The confirmation step is the whole safety property: a misheard stop name
-   * puts someone off the bus somewhere they did not choose, and unlike a
-   * sighted passenger they cannot glance up and notice.
+   * A commuter riding the same line twice a day reaches their stop in one or
+   * two gestures; only a genuinely new journey costs a search.
    */
+  const shortcuts = useMemo(() => frequentDestinations(history, groups, 5), [groups, history]);
+
+  /**
+   * Every place reachable on one bus from here, as destination groups.
+   *
+   * The gesture-only path to a destination. Without it, a first-time user with
+   * no history and no working speech recognition has NOTHING to select — which
+   * is what running the screen actually revealed.
+   */
+  const reachable = useMemo(() => {
+    if (boardingIds.length === 0) return [];
+    const groupOf = new Map<string, StopGroup>();
+    for (const g of groups) for (const id of g.stopIds) groupOf.set(id, g);
+
+    const seen = new Set<string>();
+    const out: StopGroup[] = [];
+    for (const r of reachableFrom(boardingIds, routeStops, stopRoutes)) {
+      const g = groupOf.get(r.stopId);
+      if (!g || seen.has(g.key)) continue;
+      seen.add(g.key);
+      out.push(g);
+    }
+    return out;
+  }, [boardingIds, groups, routeStops, stopRoutes]);
+
+  const chooseDestination = useCallback(
+    (group: StopGroup) => {
+      setDestination(group);
+      say([JOURNEY.planning.clip]);
+
+      /**
+       * ONLY REACHED AFTER THE READ-BACK. `destination_confirmed` is not a
+       * synonym for "the rider touched something" — a misheard destination
+       * strands someone in the wrong district, so the confirmation is mandatory
+       * and this event marks that it happened.
+       */
+      const confirmed = stopsById.get(group.stopIds[0]);
+      if (confirmed) send({ type: "destination_confirmed", destination: confirmed });
+
+      const options = planJourney(boardingIds, group.stopIds, routeStops, stopRoutes, routesById);
+      setPlans(options);
+
+      if (options.length === 0) {
+        setInput("blocked"); send({ type: "failed", fault: "no_route" });
+        note(`no route from ${boardingIds.length} platforms to ${group.name}`);
+        say([JOURNEY.noRoute.clip]);
+        return;
+      }
+
+      const next = recordDestination(history, group.key, Date.now());
+      setHistory(next);
+      saveSearchHistory(localStorage, next);
+
+      setInput("routes");
+      note(`${options.length} option(s), best ${options[0].legs.map((l) => l.routeDisplayName).join(" → ")}`);
+
+      // "{route} хэрэгтэй. {n} буудал явна." — spoken as a plan.
+      const best = options[0];
+      /**
+       * EVERY option's clips, not just the best one's — and the countdown
+       * vocabulary with them.
+       *
+       * `say()` drops any key that is not decoded, silently. Only the best
+       * route's name was ever loaded here, so the second and third suggestions
+       * announced nothing at all; and `bus_approx_prefix` / `num_N` /
+       * `bus_minutes_suffix` live in the transit manifest and were never loaded
+       * by this screen at all, which deleted the time from every one of them.
+       * A missing clip has to cost a phrase, not the whole announcement.
+       */
+      void loadTransitClips([
+        ...COUNTDOWN_CLIP_IDS,
+        ...options.flatMap((o) => o.legs.map((l) => `route_${l.routeId}`)),
+        ...options.flatMap((o) => o.legs.map((l) => `stop_${l.alightStopId}`)),
+        ...options.map((o) => `num_${o.totalStops}`).filter((k) => Number(k.slice(4)) <= MAX_SPOKEN_NUMBER),
+      ]).then(() => {
+        say([
+          `route_${best.legs[0].routeId}`, JOURNEY.routeNeededSuffix.clip,
+          best.totalStops <= 40 ? `num_${best.totalStops}` : null,
+          JOURNEY.stopsToTravelSuffix.clip,
+          // The transfer is spoken NOW, before boarding — never at the
+          // transfer point, where it is a nasty surprise to someone committed.
+          best.transfers > 0 ? JOURNEY.transferWarning.clip : null,
+          best.transfers > 0 ? `stop_${best.legs[0].alightStopId}` : null,
+          best.transfers > 0 ? `route_${best.legs[1].routeId}` : null,
+        ]);
+      });
+    },
+    [boardingIds, history, note, routeStops, routesById, say, send, stopRoutes, stopsById],
+  );
+
+  /** Ask, listen, read back. Nothing acts on an unconfirmed recognition. */
   const askDestination = useCallback(async () => {
-    const support = detectVoiceSupport();
+    const support = detectCaptureSupport();
     if (!support.available) {
-      note(`voice unavailable: ${support.reason}`);
-      setVoiceOff(true);
-      say([VOICE.unavailable.clip, WAIT.browseRoutes.clip]);
-      setPhase("menu");
+      /**
+       * On screen, in full, because there is no console on a phone and these
+       * four reasons have four different fixes. "insecure" in particular is not
+       * a device limitation at all — it is the page being served over http://,
+       * which silently removes `navigator.mediaDevices` on every browser except
+       * at localhost. That is why this passed every desktop test and failed on
+       * the one device that matters.
+       */
+      note(`voice unavailable: ${support.reason} — ${support.hint}`);
+      // Only a genuinely unsupported language should disable voice for the
+      // session. A bad URL scheme must not, or fixing the URL still leaves the
+      // rider with voice switched off.
+      if (support.reason !== "insecure") setVoiceOff(true);
+      say([VOICE.unavailable.clip]);
+      setInput("destinations");
       return;
     }
 
-    setPhase("listening");
-    say([VOICE.prompt.clip]);
-    // Let the prompt finish before the microphone opens, or it records itself.
-    await new Promise((r) => setTimeout(r, 2200));
+    /**
+     * THE MICROPHONE IS ASKED FOR HERE, BEFORE THE PROMPT — NOT AFTER IT.
+     *
+     * This function runs synchronously from the double-tap that selected
+     * "speak", so at this line the page still holds a user activation. The
+     * `await` below spends it, and iOS shows the microphone permission prompt
+     * for nothing else: from a promise continuation the request is simply never
+     * put to the rider, so it is never granted, so the next attempt is never
+     * shown either. That is the whole of why speaking a stop name worked on
+     * Android and did nothing on iOS.
+     *
+     * Warming does not start the recording. The prompt still plays to the end
+     * and `listenAnyEngine` still opens the recorder afterwards — it just finds
+     * a microphone that is already open. See lib/speech/mic.ts.
+     */
+    warmMicrophone();
 
-    const outcome = await listenOnce("mn-MN");
+    setInput("listening");
+    await sayAndWait([VOICE.prompt.clip]);
+
+    const outcome = await listenAnyEngine({
+      // The cue, not the end of the prompt, is what tells the user to speak —
+      // `start()` returning does not mean the microphone is open, and on a
+      // cheap Android the gap is long enough to swallow a whole word.
+      onEvent: (e) => {
+        if (e.type === "ready") playListenCue("start");
+        else if (e.type === "speech-end") playListenCue("end");
+        else if (e.type === "retry") note(`voice retry after ${e.after}`);
+      },
+      beforeRetry: () => sayAndWait([VOICE.notUnderstood.clip]),
+    });
+
     if (outcome.kind === "error") {
       note(`voice error: ${outcome.error}`);
-      if (outcome.languageUnsupported) {
-        // Permanent for this device — stop offering it rather than inviting a
-        // retry that cannot succeed.
-        setVoiceOff(true);
-        say([VOICE.unavailable.clip, WAIT.browseRoutes.clip]);
-      } else {
-        say([VOICE.noMatch.clip, WAIT.browseRoutes.clip]);
-      }
-      setPhase("menu");
+      if (outcome.languageUnsupported) setVoiceOff(true);
+      /**
+       * Say what actually went wrong.
+       *
+       * Every failure used to speak "no stop found with that name", which is a
+       * lie whenever nothing was heard at all — and an expensive one: it sends
+       * someone off rehearsing a name that was never the problem, when the real
+       * cause was a microphone that never opened.
+       */
+      say([
+        outcome.languageUnsupported || outcome.error === "no-mic" ||
+        outcome.error === "not-allowed" || outcome.error === "service-not-allowed"
+          ? VOICE.unavailable.clip
+          : outcome.error === "no-match"
+            ? VOICE.noMatch.clip
+            : VOICE.notUnderstood.clip,
+      ]);
+      setInput("destinations");
       return;
     }
 
-    const matches = matchStops(outcome.transcript, stops, { limit: 5 });
-    note(`heard "${outcome.transcript}" → ${matches.length} matches`);
+    const matches = searchStopsAny(outcome.alternatives, groups, { from: here, history, limit: 3 });
+    // Both transcripts go on the overlay when they differ. A read-back of a
+    // name the user did not say is otherwise unexplainable to whoever is
+    // helping them, and this is the debug channel — a phone has no console.
+    const matched = matches[0]?.matchedQuery;
+    note(
+      `heard "${outcome.transcript}"` +
+        (matched && matched !== outcome.transcript ? ` (matched "${matched}")` : "") +
+        ` → ${matches.length}`,
+    );
     if (matches.length === 0) {
-      say([VOICE.noMatch.clip, WAIT.browseRoutes.clip]);
-      setPhase("menu");
+      say([VOICE.noMatch.clip]);
+      setInput("destinations");
       return;
     }
 
-    setHeard({ transcript: outcome.transcript, matches: matches.map((m) => ({ id: m.stop.id, name: m.stop.name })) });
-    setPhase("confirm-voice");
     // The read-back is the safety step, so its audio must exist before it runs.
-    await loadTransitClips(matches.map((m) => `stop_${m.stop.id}`));
-    say([VOICE.didYouSay.clip, `stop_${matches[0].stop.id}`, VOICE.confirmHint.clip]);
-  }, [note, say, stops]);
+    setCandidates(matches.map((m) => m.group));
+    setInput("confirm-destination");
+    await loadTransitClips(matches.map((m) => `stop_${m.group.stopIds[0]}`));
+    say([VOICE.didYouSay.clip, `stop_${matches[0].group.stopIds[0]}`, VOICE.confirmHint.clip]);
+  }, [groups, here, history, note, say, sayAndWait]);
 
   // ------------------------------------------------------------ board
 
   const board = useCallback(
-    (routeId: string) => {
-      if (!stop) return;
-      const route = routesById.get(routeId);
-      if (!route) return;
-      for (const direction of route.directions) {
-        const built = buildHandoff(
-          { routeId, directionId: direction.id, boardingStopId: stop.id,
-            routeDisplayName: route.displayName, headsign: direction.headsign },
-          routeStops,
-        );
-        if (built.ok) {
-          writeHandoff(built.handoff, sessionStorage);
-          router.push("/bus/ride");
-          return;
-        }
+    (option: JourneyOption) => {
+      const leg = option.legs[0];
+      const built = buildHandoff(
+        {
+          routeId: leg.routeId, directionId: leg.directionId, boardingStopId: leg.boardStopId,
+          routeDisplayName: leg.routeDisplayName,
+          headsign: routesById.get(leg.routeId)?.directions.find((d) => d.id === leg.directionId)?.headsign ?? "",
+        },
+        routeStops,
+      );
+      if (!built.ok) {
+        note(`handoff rejected: ${built.reason}`);
+        say([DEGRADED.routeInfo.clip]);
+        return;
       }
-      note(`cannot board ${route.displayName} here`);
-      say([DEGRADED.routeInfo.clip]);
+      /**
+       * Record the choice on the JOURNEY as well as in the handoff.
+       *
+       * The handoff is a serialisation for the next screen; the journey is what
+       * the guide answers from. Setting both here means a rider who long-presses
+       * between selecting a bus and the navigation completing is told which bus
+       * they picked, rather than being told nothing because the next screen has
+       * not mounted yet.
+       *
+       * The estimate travels with its EVIDENCE. `countdownOf` reads this
+       * option's own platform, and `evidenceFor` is the only thing allowed to
+       * decide whether that counts as a sighting — it never does today.
+       */
+      const boardStop = stopsById.get(leg.boardStopId);
+      const alightStop = stopsById.get(leg.alightStopId);
+      const arrival = arrivalsByStop.get(leg.boardStopId)?.arrivals
+        .find((a) => a.routeId === leg.routeId);
+
+      /**
+       * How far the rider actually is from the platform they must board at.
+       *
+       * Measured from the live fix, not assumed. The next screen decides between
+       * "you are waiting" and "you are walking" from this number, and it used to
+       * be hard-coded to zero — so a rider 200 m from the correct platform was
+       * told a bus was due at a kerb they were not standing on.
+       */
+      const boardingDistanceM = here && boardStop ? Math.round(haversine(here, boardStop)) : undefined;
+
+      if (boardStop && alightStop) {
+        send({ type: "destination_confirmed", destination: alightStop });
+        send({
+          type: "route_chosen",
+          origin: boardStop,
+          busDueAt: arrival?.arrivesAt ?? null,
+          busDueSource: arrival?.arrivesAt == null ? null : evidenceFor(arrival.source),
+          route: {
+            routeId: leg.routeId,
+            directionId: leg.directionId,
+            displayName: leg.routeDisplayName,
+            headsign: built.handoff.headsign,
+            boardingIndex: built.handoff.boardingIndex,
+            destinationIndex: leg.alightIndex,
+          },
+        });
+        send({ type: "guidance_started", distanceToStopM: boardingDistanceM ?? null });
+      }
+
+      writeHandoff({ ...built.handoff, boardingDistanceM }, sessionStorage);
+      try {
+        // The ride screen counts to this, so it must survive the navigation.
+        sessionStorage.setItem("vision-access:alight-stop", leg.alightStopId);
+      } catch { /* private mode */ }
+      /**
+       * TO THE GATE, NOT TO THE RIDE.
+       *
+       * This used to push straight to `/bus/ride`, which starts counting stops —
+       * so picking a bus off a list was treated as being on it, typically
+       * minutes before anything arrived. `/bus/board` holds the wait, keeps the
+       * rider informed through it, and asks whether they actually boarded before
+       * any of the ride announcements can begin. See app/bus/board/BoardScreen.
+       */
+      router.push("/bus/board");
     },
-    [note, routeStops, routesById, router, say, stop],
+    [arrivalsByStop, here, note, routeStops, routesById, router, say, send, stopsById],
   );
+
+  // ---------------------------------------------------------- options
 
   /**
-   * A confirmed spoken destination picks the route for the user.
+   * One option's countdown, from ITS OWN platform's arrivals.
    *
-   * This is the point of speaking: they said where they are going, so the app
-   * works out which bus serves it rather than making them choose one.
+   * Returns `unknown` — never a guess — when the payload is missing, too old to
+   * trust, or carries nothing for this route. The lookup is by boarding stop
+   * AND route because a single response used to be fetched for the first plan's
+   * platform and then matched by route id alone; boarding platforms are
+   * collected within 400 m, so the later suggestions were given another stop's
+   * times.
    */
-  const boardTowards = useCallback(
-    (destinationStopId: string) => {
-      if (!stop) return;
-      const here = stopRoutes[stop.id] ?? [];
-      for (const routeId of here) {
-        const dirs = routeStops[routeId];
-        if (!dirs) continue;
-        for (const [directionId, sequence] of Object.entries(dirs)) {
-          const from = sequence.indexOf(stop.id);
-          const to = sequence.indexOf(destinationStopId);
-          // Both on this direction, and the destination genuinely ahead of us.
-          if (from < 0 || to < 0 || to <= from) continue;
-          const route = routesById.get(routeId);
-          const built = buildHandoff(
-            { routeId, directionId: Number(directionId), boardingStopId: stop.id,
-              routeDisplayName: route?.displayName ?? routeId,
-              headsign: route?.directions.find((d) => d.id === Number(directionId))?.headsign ?? "" },
-            routeStops,
-          );
-          if (built.ok) {
-            writeHandoff({ ...built.handoff }, sessionStorage);
-            try {
-              sessionStorage.setItem("vision-access:intended-destination", destinationStopId);
-            } catch { /* private mode */ }
-            note(`voice → ${route?.displayName} dir ${directionId}`);
-            router.push("/bus/ride");
-            return;
-          }
-        }
-      }
-      // Said a real stop, but nothing from here reaches it.
-      note("no route from here reaches that stop");
-      say([DEGRADED.routeInfo.clip, WAIT.browseRoutes.clip]);
-      setPhase("menu");
+  const countdownOf = useCallback(
+    (option: JourneyOption, at: number): Countdown => {
+      const leg = option.legs[0];
+      const payload = arrivalsByStop.get(leg.boardStopId);
+      if (!payload || isStale(payload.generatedAt, at)) return { kind: "unknown" };
+      const arrival = payload.arrivals.find((a) => a.routeId === leg.routeId);
+      if (!arrival) return { kind: "unknown" };
+      return countdownFor(arrival, at);
     },
-    [note, routeStops, routesById, router, say, stop, stopRoutes],
+    [arrivalsByStop],
   );
 
-  // ------------------------------------------------------------ options
-
   const options: ListOption<Choice>[] = useMemo(() => {
-    if (phase === "confirm-voice" && heard) {
-      return heard.matches.map((m) => ({
-        value: { kind: "voiceMatch" as const, stopId: m.id, name: m.name },
-        keys: [`stop_${m.id}`],
-        label: m.name,
+    if (input === "confirm-destination") {
+      return candidates.map((g) => ({
+        value: { kind: "destination" as const, group: g },
+        keys: [`stop_${g.stopIds[0]}`],
+        label: g.name,
       }));
     }
-    if (phase === "menu" || phase === "routes") {
-      const routeOptions: ListOption<Choice>[] = (stop ? stopRoutes[stop.id] ?? [] : []).map((routeId) => {
-        const route = routesById.get(routeId);
-        const arrival = arrivals?.arrivals.find((a) => a.routeId === routeId);
+    if (input === "routes") {
+      return plans.map((option) => {
+        const countdown = countdownOf(option, now);
+        /**
+         * "{n} буудал явна" — both clips or neither.
+         *
+         * The same all-or-none rule `countdownKeys` applies to the time, for
+         * the same reason: a suffix whose number failed to decode leaves "…
+         * буудал явна" opening on nothing, which sounds like a number that was
+         * said and misheard rather than one that was never there.
+         */
+        const stops = `num_${option.totalStops}`;
+        const stopsSuffix = JOURNEY.stopsToTravelSuffix.clip;
+        const stopsKeys =
+          option.totalStops >= 1 && option.totalStops <= MAX_SPOKEN_NUMBER &&
+          hasClip(stops) && Boolean(stopsSuffix) && hasClip(stopsSuffix!)
+            ? [stops, stopsSuffix!]
+            : [];
         return {
-          value: { kind: "route" as const, routeId },
-          keys: [`route_${routeId}`],
-          label: `${route?.displayName ?? routeId}${arrival ? ` · ойролцоогоор ${arrival.minutes} мин` : ""}`,
+          value: { kind: "plan" as const, option },
+          /**
+           * WHICH BUS, HOW FAR, THEN WHEN — in that order, every time.
+           *
+           * The route name alone was all this ever actually said. The minute
+           * keys were assembled here inline and handed to `say()`, which drops
+           * any clip that is not decoded; all three of them live in the TRANSIT
+           * manifest and nothing on this screen ever loaded it, so the time was
+           * silently deleted from every option. The stop count was never spoken
+           * at all — it existed only in the on-screen label, which is precisely
+           * the half of the interface the user cannot reach.
+           *
+           * The count is the journey LENGTH ("12 буудал явна"), not stops until
+           * this bus reaches the kerb: that would need live vehicle positions,
+           * and the City feed is dark (docs/city-gateway.md). Claiming it from
+           * a timetable would be inventing the one number a rider would act on.
+           */
+          keys: [
+            `route_${option.legs[0].routeId}`,
+            /**
+             * WHICH PLATFORM, BEFORE ANYTHING ELSE ABOUT THE BUS.
+             *
+             * A named stop here is almost always two platforms — 351 pairs in
+             * the shipped data, 334 of them sharing a route — and the planner
+             * chooses whichever one actually reaches the destination. That is
+             * routinely NOT the platform the rider is standing on: the median
+             * separation is 82 m and 88% of pairs sit inside the GPS match
+             * radius, so nobody can feel the difference and nothing could sense
+             * it for them.
+             *
+             * This used to say route, stops and time and never name the stop at
+             * all. A rider at `Сансар /Урд/` was told "Ч:35, twelve stops,
+             * about five minutes" while the plan boarded at `Сансар /Хойд/`
+             * across the way — and then rode in the wrong direction.
+             *
+             * The stop clip already carries the side ("Саппоро, Урд"), so this
+             * costs no new audio. See lib/transit/platform.ts.
+             */
+            ...platformCalloutKeys(
+              stopsById.get(option.legs[0].boardStopId) ?? { id: "", name: "", lat: 0, lon: 0 },
+              boardingRelation(nearbyStop, stopsById.get(option.legs[0].boardStopId) ?? null),
+              hasClip,
+            ),
+            ...stopsKeys,
+            // Hedged, always, and derived against `now` rather than stored —
+            // the prefix and the derivation are both structural, see eta.ts.
+            ...countdownKeys(countdown, hasClip),
+            option.transfers > 0 ? JOURNEY.transferWarning.clip : null,
+          ].filter((k): k is string => Boolean(k)),
+          label: `${option.legs.map((l) => l.routeDisplayName).join(" → ")} · ${option.totalStops} буудал`
+            + ` · ${describeCountdown(countdown)}`
+            + (boardingRelation(nearbyStop, stopsById.get(option.legs[0].boardStopId) ?? null) !== "same_platform"
+              ? ` · ${stopsById.get(option.legs[0].boardStopId)?.name ?? ""}`
+              : ""),
         };
       });
-      // Speaking first: it is the shortest path to a daily journey.
+    }
+    if (input === "browsing") {
+      return reachable.map((g) => ({
+        value: { kind: "destination" as const, group: g },
+        keys: [`stop_${g.stopIds[0]}`],
+        label: g.name,
+      }));
+    }
+    if (input === "destinations") {
       const head: ListOption<Choice>[] = voiceOff
         ? []
         : [{ value: { kind: "voice" }, keys: [WAIT.sayDestination.clip!], label: WAIT.sayDestination.mn }];
-      const tail: ListOption<Choice>[] =
-        candidates.length > 1
-          ? [{ value: { kind: "otherStop" }, keys: [WAIT.otherStop.clip!], label: WAIT.otherStop.mn }]
-          : [];
-      return [...head, ...routeOptions, ...tail];
+      // History first — most journeys repeat.
+      const recent: ListOption<Choice>[] = shortcuts.map((g) => ({
+        value: { kind: "destination" as const, group: g },
+        keys: [`stop_${g.stopIds[0]}`],
+        label: g.name,
+      }));
+      // Always last, and always present: the path that needs no speech and no
+      // history. Gestures alone must be able to finish the journey.
+      const browse: ListOption<Choice>[] = reachable.length
+        ? [{ value: { kind: "browse" }, keys: [WAIT.browseRoutes.clip!], label: WAIT.browseRoutes.mn }]
+        : [];
+      // Correcting the stop we guessed. Offered only when there is something
+      // else it could be — a single-candidate fix has nothing to correct to.
+      const others: ListOption<Choice>[] = nearbyOptions
+        .filter((s) => s.id !== nearbyStop?.id)
+        .map((s) => ({ value: { kind: "here" as const, stop: s }, keys: [`stop_${s.id}`], label: s.name }));
+      return [...head, ...recent, ...browse, ...others];
     }
     return [];
-  }, [arrivals, candidates.length, heard, phase, routesById, stop, stopRoutes, voiceOff]);
+  }, [candidates, countdownOf, input, nearbyOptions, nearbyStop, now, plans, reachable, shortcuts, stopsById, voiceOff]);
 
+  /**
+   * Speak the option under the cursor, fetching its name if it is not decoded.
+   *
+   * THE LIST IS LONGER THAN ANY PRELOAD. Browsing every place reachable on one
+   * bus can run to hundreds of entries, and pinning them all would decode
+   * hundreds of megabytes of PCM. The previous version loaded the first forty
+   * and then went silent — a blind rider swiping past entry forty heard
+   * nothing at all and had no way to know why.
+   *
+   * So a window follows the cursor, and the announcement WAITS for its own clip
+   * when that clip is not there yet. Waiting a beat is recoverable; silence is
+   * indistinguishable from the end of the list.
+   */
   const announce = useCallback(
     (option: ListOption<Choice>, ctx: { wrapped: boolean }) => {
-      say([ctx.wrapped ? GESTURE.listWrapped.clip : null, ...option.keys]);
+      const prefix = ctx.wrapped ? GESTURE.listWrapped.clip : null;
+      const missing = option.keys.filter((k) => k.startsWith("stop_") && !hasClip(k));
+
+      if (missing.length === 0) {
+        say([prefix, ...option.keys]);
+        return;
+      }
+      void loadTransitClips(missing).then(() => say([prefix, ...option.keys]));
     },
     [say],
   );
+
+  /**
+   * Keep a window of names decoded around the cursor.
+   *
+   * Ahead of the cursor by more than behind it, because a list is scrolled
+   * forward far more often than back and a name that arrives late reads as the
+   * app having stopped.
+   */
+  const browseIds = useMemo(() => {
+    if (input === "browsing") return reachable.map((g) => g.stopIds[0]);
+    if (input === "destinations") return shortcuts.map((g) => g.stopIds[0]);
+    return [];
+  }, [input, reachable, shortcuts]);
 
   const onSelect = useCallback(
     (option: ListOption<Choice>) => {
       const choice = option.value;
       if (choice.kind === "voice") { void askDestination(); return; }
-      if (choice.kind === "browse") { setPhase("routes"); return; }
-      if (choice.kind === "route") { board(choice.routeId); return; }
-      if (choice.kind === "voiceMatch") { boardTowards(choice.stopId); return; }
-      if (choice.kind === "otherStop") {
-        const next = candidates[1];
-        if (next) {
-          setStop(next.stop);
-          setCandidates([...candidates.slice(1), candidates[0]]);
-          say(["bus_you_are_at", `stop_${next.stop.id}`, "bus_at_stop_suffix"]);
-        }
+      if (choice.kind === "browse") {
+        setInput("browsing");
+        say([LIST.allStopsHeading.clip]);
+        // The first window only. The rest follows the cursor — see below.
+        void loadTransitClips(browseWindowKeys(reachable.map((g) => g.stopIds[0]), 0));
+        return;
       }
+      if (choice.kind === "here") {
+        setNearbyStop(choice.stop);
+        // Re-anchor boarding on the corrected stop so planning uses it first.
+        setBoardingIds((ids) => [choice.stop.id, ...ids.filter((id) => id !== choice.stop.id)]);
+        say(["bus_you_are_at", `stop_${choice.stop.id}`, "bus_at_stop_suffix"]);
+        return;
+      }
+      if (choice.kind === "destination") { chooseDestination(choice.group); return; }
+      if (choice.kind === "plan") { board(choice.option); return; }
     },
-    [askDestination, board, boardTowards, candidates, say],
+    [askDestination, board, chooseDestination, reachable, say],
   );
 
   const nav = useGestureNav<Choice>({
@@ -329,28 +895,146 @@ export function WaitScreen({
     announce,
     onSelect,
     onBack: () => {
-      if (phase === "confirm-voice") { setPhase("menu"); setHeard(null); say([WAIT.sayDestination.clip]); return; }
+      if (input === "routes" || journey.fault === "no_route" || input === "confirm-destination" || input === "browsing") {
+        setInput("destinations");
+        setCandidates([]);
+        say([JOURNEY.askDestination.clip]);
+        return;
+      }
       router.push("/");
     },
     onRepeat: () => { if (lastSpokenRef.current.length) playSequence(lastSpokenRef.current, { interrupt: true }); },
-    onWhereAmI: (o) => say([GESTURE.whereAmI.clip, SCREEN.wait.clip, stop ? `stop_${stop.id}` : null, ...(o?.keys ?? [])]),
-    enabled: phase !== "locating" && phase !== "listening",
+    // Long press: always an immediate answer to "where am I".
+    /**
+     * Long press: "where am I".
+     *
+     * A FAULT ANSWERS FROM THE GUIDE, so the rider gets the same phrase for the
+     * same cause wherever they are in the app — that consistency is the whole
+     * point of moving the failure states onto the journey. Otherwise this screen
+     * answers with what it alone knows: the stop under the rider and the
+     * destination they are choosing between.
+     */
+    onWhereAmI: (o) => {
+      if (journey.fault) {
+        say(answer(journey, "help", hasClip, Date.now()).keys);
+        return;
+      }
+      say([
+        GESTURE.whereAmI.clip, SCREEN.wait.clip,
+        nearbyStop ? `stop_${nearbyStop.id}` : null,
+        destination ? `stop_${destination.stopIds[0]}` : null,
+        ...(o?.keys ?? []),
+      ]);
+    },
+    enabled: input !== "locating" && input !== "listening",
+    // A new list starts at the top — see resetKey in useGestureNav.
+    resetKey: input,
   });
 
-  // Arrival times, once a stop is known. The only network call on this screen.
+  /**
+   * Arrival times, one fetch per BOARDING PLATFORM, refreshed while waiting.
+   *
+   * An enrichment — the plan is complete without it — but a self-refreshing
+   * one. A countdown derived from a single fetch decays: after STALE_AFTER_MS
+   * `isStale` correctly refuses to speak from it, and the rider standing at the
+   * stop would simply stop being told anything. Refreshing is what lets the
+   * numbers stay true for as long as someone is actually waiting.
+   */
   useEffect(() => {
-    if (!stop) return;
+    if (input !== "routes") return;
+    const stopIds = [...new Set(plans.map((p) => p.legs[0].boardStopId))].slice(0, MAX_ARRIVAL_STOPS);
+    if (stopIds.length === 0) return;
+
     let cancelled = false;
-    fetch(`/api/transit/next?stopId=${encodeURIComponent(stop.id)}`)
-      .then((r) => r.json())
-      .then((body: NextArrivalsResponse) => {
-        if (cancelled) return;
-        setArrivals(body);
-        if (body.degraded) say([DEGRADED.service.clip]);
-      })
-      .catch(() => { if (!cancelled) say([DEGRADED.network.clip]); });
-    return () => { cancelled = true; };
-  }, [say, stop]);
+    let spokenDegraded = false;
+
+    const load = () => {
+      for (const stopId of stopIds) {
+        fetch(`/api/transit/next?stopId=${encodeURIComponent(stopId)}`)
+          .then((r) => r.json())
+          .then((body: NextArrivalsResponse) => {
+            if (cancelled) return;
+            setArrivalsByStop((prev) => new Map(prev).set(stopId, body));
+            setNow(Date.now());
+            // Degrade audibly, but ONCE. Silence would read as "no bus is
+            // coming"; saying it on every refresh would be its own noise.
+            if (body.degraded && !spokenDegraded) {
+              spokenDegraded = true;
+              note(`arrivals degraded at ${stopId}: ${body.degraded}`);
+              say([JOURNEY.liveUnavailable.clip]);
+            }
+          })
+          .catch(() => {
+            if (cancelled || spokenDegraded) return;
+            spokenDegraded = true;
+            say([DEGRADED.network.clip]);
+          });
+      }
+    };
+
+    load();
+    const timer = setInterval(load, ARRIVALS_REFRESH_MS);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [input, note, plans, say]);
+
+  /**
+   * The countdown clock, ticking only while there is a countdown to show.
+   *
+   * Every 10 s rather than every second: the numbers are minutes, the source is
+   * a timetable, and a per-second re-render on a cheap Android buys nothing an
+   * ear can hear.
+   */
+  useEffect(() => {
+    if (input !== "routes") return;
+    const timer = setInterval(() => setNow(Date.now()), COUNTDOWN_TICK_MS);
+    return () => clearInterval(timer);
+  }, [input]);
+
+  /**
+   * THE WAIT, NARRATED — the countdown speaks up as it changes.
+   *
+   * A blind rider cannot glance at a board, so a number spoken once and then
+   * never again is a number that quietly stops being true. But narrating every
+   * tick trains someone to ignore the voice, which costs more than it gives.
+   * So only the marks that change what a person DOES are announced: enough time
+   * to still be walking, time to be at the kerb, time to have the card out, and
+   * now. See ALERT_MINUTES in lib/transit/eta.ts.
+   *
+   * It follows the option under the cursor — the bus the rider last heard and
+   * is therefore thinking about — and always names the route, so "one minute"
+   * can never be ambiguous about WHICH bus.
+   *
+   * The haptic goes out with it. That is the channel that survives a phone in a
+   * coat pocket, traffic on Peace Avenue, and gloves: the one set of conditions
+   * this app is actually used in.
+   */
+  const watched = useRef<{ key: string; countdown: Countdown } | null>(null);
+
+  useEffect(() => {
+    if (input !== "routes") { watched.current = null; return; }
+    const option = plans[nav.index];
+    if (!option) { watched.current = null; return; }
+
+    const key = `${option.legs[0].routeId}@${option.legs[0].boardStopId}`;
+    const countdown = countdownOf(option, now);
+    const previous = watched.current?.key === key ? watched.current.countdown : null;
+    watched.current = { key, countdown };
+
+    const mark = crossedAlert(previous, countdown);
+    if (mark !== null) {
+      note(`countdown ${option.legs[0].routeDisplayName}: ${mark} min mark`);
+      playEarcon(earconForMark(mark));
+      vibrate(waitVibration(mark) ?? []);
+      say([`route_${option.legs[0].routeId}`, ...countdownKeys(countdown, hasClip)]);
+      return;
+    }
+    if (becameDue(previous, countdown)) {
+      note(`countdown ${option.legs[0].routeDisplayName}: due`);
+      playEarcon("urgent");
+      vibrate(DUE_VIBRATION);
+      say([`route_${option.legs[0].routeId}`, ...countdownKeys(countdown, hasClip)]);
+    }
+  }, [countdownOf, input, nav.index, note, now, plans, playEarcon, say]);
 
   const a11yOptions: A11yOption[] = options.map((o, i) => ({
     label: o.label,
@@ -358,17 +1042,41 @@ export function WaitScreen({
     onActivate: () => { nav.setIndex(i); onSelect(o); },
   }));
 
+  /**
+   * Prefetch ahead of the cursor.
+   *
+   * Decoding is idempotent and already-loaded keys are skipped, so this is
+   * cheap to re-run on every move; what it buys is that the name is usually
+   * there before the swipe that asks for it.
+   */
+  useEffect(() => {
+    if (browseIds.length === 0) return;
+    void loadTransitClips(browseWindowKeys(browseIds, nav.index)).catch(() => {});
+  }, [browseIds, nav.index]);
+
+  const view = useMemo(() => present(journey, now), [journey, now]);
+
   const handlers = {
     ...nav.handlers,
     onTouchStart: (e: React.TouchEvent) => { void start(); nav.handlers.onTouchStart(e); },
   };
 
+  /**
+   * What the screen says it is doing.
+   *
+   * A FAULT ALWAYS WINS, and it comes from the journey — one phrase per cause,
+   * chosen by `present()`, so "no stop nearby" and "location unavailable" can
+   * never collapse into one message. They send a rider to opposite actions:
+   * walk somewhere else, or stand still under open sky.
+   *
+   * Otherwise the title is the input mode, because that is genuinely what
+   * differs — the journey is `selecting_destination` throughout.
+   */
   const title =
-    phase === "locating" ? WAIT.searching.mn
-    : phase === "listening" ? VOICE.listening.mn
-    : phase === "no-stop" ? WAIT.noStopNearby.mn
-    : phase === "no-location" ? DEGRADED.location.mn
-    : nav.current?.label ?? (stop?.name ?? SCREEN.wait.mn);
+    journey.fault ? view.headline
+    : input === "locating" ? WAIT.searching.mn
+    : input === "listening" ? VOICE.listening.mn
+    : nav.current?.label ?? JOURNEY.askDestination.mn;
 
   return (
     <GestureSurface
@@ -378,7 +1086,7 @@ export function WaitScreen({
     >
       <CurrentOption
         title={title}
-        detail={stop?.name}
+        detail={destination?.name ?? nearbyStop?.name}
         position={options.length ? `${nav.index + 1} / ${options.length}` : undefined}
       />
       <details style={{ position: "absolute", bottom: 6, left: 6, fontSize: 11, color: "#333" }}>
