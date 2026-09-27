@@ -93,8 +93,8 @@ export async function loadAllClips(
 /**
  * Loads a SUBSET, or everything when `ids` is omitted.
  *
- * The subset form exists because decoding every clip is ~8 MB of WAV, and on a
- * phone that is many seconds during which the app cannot say a word —
+ * The subset form exists because decoding all 123 clips is ~9 MB of WAV, and
+ * on a phone that is many seconds during which the app cannot say a word —
  * indistinguishable, to someone who cannot see it, from an app that is broken.
  * Screens load the few clips they need to speak first, then the rest behind.
  */
@@ -169,7 +169,7 @@ export async function loadTransitClips(ids: string[]): Promise<{ ok: string[]; f
       if (!entry) { failed.push(id); return; }
       try {
         const url = preferAac && entry.pathAac ? entry.pathAac : entry.path;
-        const res = await withTimeout(fetch(url), CLIP_FETCH_TIMEOUT_MS);
+        const res = await fetch(url);
         if (!res.ok) throw new Error(String(res.status));
         buffers.set(id, await context.decodeAudioData(await res.arrayBuffer()));
         ok.push(id);

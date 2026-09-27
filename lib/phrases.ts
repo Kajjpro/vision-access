@@ -280,41 +280,8 @@ export const PHRASES: Phrase[] = [
   { id: "unclear", mn: "Тодорхойгүй", en: "unclear", kind: "ui" },
   { id: "try_again", mn: "Дахин оролдоно уу", en: "try again", kind: "ui" },
 
-  // ---- Money mode -------------------------------------------------------
-  // NOTES.md required these to be added WITH the denominations in
-  // lib/money/denominations.ts, so the spoken set and the recognisable set
-  // cannot drift apart. DENOMINATION_INFO.phraseId points at these ids and
-  // scripts/verify-pipeline.ts fails the build if one loses its wav.
-  //
-  // kind "ui", NOT "object" — DETECTION_CLASSES filters on "object" and its
-  // index IS the ONNX class id. An entry here as an object would renumber
-  // every obstacle class and silently mislabel every detection. A banknote is
-  // not a YOLO class in this app and cannot become one: see
-  // lib/money/denominations.ts for why it is matched rather than detected.
-  //
-  // Capitalised, because a denomination is the WHOLE announcement rather than
-  // a fragment following an object name — unlike the lowercase distance and
-  // `bus_is` clips that continue a sentence someone is already listening to.
-  //
-  // Attributive numeral forms ("нэг мянган төгрөг"), matching the m_N distance
-  // clips, because the numeral modifies төгрөг. The counting forms in the n_N
-  // digit clips ("нэг", "тав") are for reading route numbers digit by digit
-  // and would be wrong here.
-  { id: "money_100", mn: "Зуун төгрөг", en: "100 tögrög", kind: "ui" },
-  { id: "money_500", mn: "Таван зуун төгрөг", en: "500 tögrög", kind: "ui" },
-  { id: "money_1000", mn: "Нэг мянган төгрөг", en: "1000 tögrög", kind: "ui" },
-  { id: "money_5000", mn: "Таван мянган төгрөг", en: "5000 tögrög", kind: "ui" },
-  { id: "money_10000", mn: "Арван мянган төгрөг", en: "10000 tögrög", kind: "ui" },
-  { id: "money_20000", mn: "Хорин мянган төгрөг", en: "20000 tögrög", kind: "ui" },
-
-  // Operating the app, not describing the world. CLAUDE.md's "describe, never
-  // instruct" rule governs what the camera reports — it forbids telling
-  // someone whether to cross a road, not telling them where to hold a note.
-  { id: "money_prompt", mn: "Мөнгөө камерт харуулна уу", en: "show the money to the camera", kind: "ui" },
-  { id: "money_reading", mn: "Уншиж байна", en: "reading", kind: "ui" },
-
   // ---- Gesture UI and first-run tutorial -------------------------------
-  // Rendered by scripts/generate-audio.ts as WAV, not Opus: these are the
+  // Rendered by scripts/render-ui-audio.ts as WAV, not Opus: these are the
   // first sounds a new user ever hears, and iOS Safari decodes WAV natively
   // while its Ogg Opus support is unreliable. Short and few, so the bytes
   // are not worth a compatibility risk.
