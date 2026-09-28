@@ -13,15 +13,18 @@ import { WaitScreen } from "./WaitScreen";
 
 export const metadata = { title: "Автобус хүлээх" };
 
-function readJson<T>(relative: string): T {
-  return JSON.parse(readFileSync(join(process.cwd(), relative), "utf8")) as T;
+// The literal "public/transit" segment (rather than a fully dynamic path)
+// lets the build's file tracer scope to that folder instead of the whole
+// project — see the sibling board/journey/ride pages for the same pattern.
+function readTransitJson<T>(name: string): T {
+  return JSON.parse(readFileSync(join(process.cwd(), "public/transit", name), "utf8")) as T;
 }
 
 export default function BusWaitPage() {
-  const stops = readJson<Stop[]>("public/transit/stops.json");
-  const routes = readJson<Route[]>("public/transit/routes.json");
-  const stopRoutes = readJson<StopRoutes>("public/transit/stop-routes.json");
-  const routeStops = readJson<RouteStops>("public/transit/route-stops.json");
+  const stops = readTransitJson<Stop[]>("stops.json");
+  const routes = readTransitJson<Route[]>("routes.json");
+  const stopRoutes = readTransitJson<StopRoutes>("stop-routes.json");
+  const routeStops = readTransitJson<RouteStops>("route-stops.json");
 
   // The screen speaks through the shared WAV pipeline (lib/audio.ts), which
   // iOS decodes natively — no manifest needed here.

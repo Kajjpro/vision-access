@@ -12,7 +12,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 import { announceRemaining, vibrationFor } from "./announce";
-import { generateStationaryTrace, generateTrace, stopSpacing } from "./gps-sim";
+import { generateStationaryTrace, generateTrace } from "./gps-sim";
 import {
   BAD_FIX_LIMIT, checkGpsLoss, createState, ENTER_M, EXIT_M, GPS_LOSS_MS,
   manualAdvance, onPosition, type Fix, type MatcherEvent, type OrderedStop,
@@ -62,7 +62,7 @@ test("clean run at 25 km/h with ±40 m noise counts every stop exactly once", ()
   const destIndex = seq.length - 1;
 
   const fixes = generateTrace(seq, { speedKmh: 25, noiseM: 40, seed: 1 });
-  const { state, events } = replay(seq, fixes, destIndex);
+  const { events } = replay(seq, fixes, destIndex);
 
   const indices = passed(events).map((e) => (e as { index: number }).index);
   const required = Array.from({ length: destIndex - 1 }, (_, i) => i + 1);
@@ -223,7 +223,7 @@ test("the longest route in the city counts end to end with no drift", () => {
 
   const destIndex = seq.length - 1;
   const fixes = generateTrace(seq, { speedKmh: 25, noiseM: 40, seed: 42 });
-  const { state, events } = replay(seq, fixes, destIndex);
+  const { events } = replay(seq, fixes, destIndex);
 
   const indices = passed(events).map((e) => (e as { index: number }).index);
   const required = Array.from({ length: destIndex - 1 }, (_, i) => i + 1);
@@ -351,7 +351,7 @@ test("every route in the city counts correctly end to end", () => {
       }
       const destIndex = seq.length - 1;
       const fixes = generateTrace(seq, { speedKmh: 25, noiseM: 40, seed: 99 });
-      const { state, events } = replay(seq, fixes, destIndex);
+      const { events } = replay(seq, fixes, destIndex);
       const indices = passed(events).map((e) => (e as { index: number }).index);
       const arrived = events.some((e) => e.type === "arrived");
 

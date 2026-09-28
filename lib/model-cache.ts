@@ -233,7 +233,6 @@ async function downloadModelUncoalesced(onProgress?: ProgressFn): Promise<void> 
     const end = Math.min(start + CHUNK_BYTES, meta.total) - 1;
     const res = await fetch(MODEL_URL, { headers: { Range: `bytes=${start}-${end}` } });
     if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
-    const size = end - start + 1;
 
     /**
      * The file changed under a partially downloaded set.
