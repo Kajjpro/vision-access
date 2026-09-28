@@ -16,7 +16,11 @@ import { join } from "node:path";
 import type { AudioManifest, RouteStops, Stop } from "@/lib/transit/types";
 import { BoardScreen } from "./BoardScreen";
 
-export const metadata = { title: "Автобус хүлээж байна" };
+export const metadata = {
+  title: "Автобус хүлээж байна",
+  description: "Сонгосон автобусаа хүлээж, ирэхийг нь дуут мэдэгдлээр баталгаажуулна. Тодорхойгүй бол асууж, буруу автобус бол шинийг сонгоно.",
+  alternates: { canonical: "/bus/board" },
+};
 
 // Literal directory segments (rather than a fully dynamic path) let the
 // build's file tracer scope to these two folders instead of the whole

@@ -183,6 +183,7 @@ export function JourneySurface({
       handlers={handlers}
       options={a11yOptions}
       onFocusOption={(i) => { void onStart(); nav.setIndex(i); }}
+      heading={assistantOpen ? "Асуух" : view.headline}
     >
       {/*
         TOP — where the rider is. Rendered for screen readers as well as drawn:

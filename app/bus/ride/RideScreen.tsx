@@ -1257,7 +1257,7 @@ export function RideScreen({
 
   if (handoffError) {
     return (
-      <GestureSurface handlers={pickerHandlers} options={[]}>
+      <GestureSurface handlers={pickerHandlers} options={[]} heading="Алдаа">
         <CurrentOption title="Алдаа" detail={handoffError} />
       </GestureSurface>
     );
@@ -1271,6 +1271,7 @@ export function RideScreen({
         handlers={pickerHandlers}
         options={pickerA11y}
         onFocusOption={(i) => { void start(); pickerNav.setIndex(i); }}
+        heading={pickerNav.current?.label ?? SCREEN.destination.mn}
       >
         <CurrentOption
           title={pickerNav.current?.label ?? SCREEN.destination.mn}

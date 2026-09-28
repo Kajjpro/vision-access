@@ -12,13 +12,58 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const SITE_URL = "https://www.visionaccess.world";
+const SITE_NAME = "Vision Access";
+// Kept in Mongolian — the same string already spoken on load and shown as the
+// app name everywhere in the UI (see lib/ui/announcements.ts SCREEN.home).
+const DEFAULT_DESCRIPTION =
+  "Харааны бэрхшээлтэй иргэдэд зориулсан автобусны навигаци. Буудал, зогсоолыг дуугаар мэдэгдэж, аяллын турш зорчигчийг дагалдана. Алдааг шууд мэдэгдэх боломжтой.";
+
 export const metadata: Metadata = {
-  title: "Харааны Хандалт",
-  description: "Camera-based obstacle detection and bus guidance for blind users in Mongolia.",
+  metadataBase: new URL(SITE_URL),
+  title: { default: "Харааны Хандалт | Vision Access", template: `%s | ${SITE_NAME}` },
+  description: DEFAULT_DESCRIPTION,
+  alternates: { canonical: "/" },
+  openGraph: {
+    type: "website",
+    locale: "mn_MN",
+    url: "/",
+    siteName: SITE_NAME,
+    title: "Харааны Хандалт | Vision Access",
+    description: DEFAULT_DESCRIPTION,
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Харааны Хандалт | Vision Access",
+    description: DEFAULT_DESCRIPTION,
+  },
   // iOS: without this, adding to the home screen opens in a browser chrome that
   // steals vertical space and re-introduces the scroll gestures we disable.
   appleWebApp: { capable: true, statusBarStyle: "black-translucent", title: "Харааны Хандалт" },
 };
+
+const JSON_LD = [
+  {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    name: SITE_NAME,
+    alternateName: "Харааны Хандалт",
+    url: SITE_URL,
+    inLanguage: "mn",
+  },
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    name: SITE_NAME,
+    alternateName: "Харааны Хандалт",
+    url: SITE_URL,
+    description: DEFAULT_DESCRIPTION,
+    applicationCategory: "TravelApplication",
+    operatingSystem: "Web",
+    inLanguage: "mn",
+    offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+  },
+];
 
 /**
  * iOS needs an explicit viewport or Safari assumes a zoomable desktop page,
@@ -47,7 +92,15 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       lang="mn"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        {children}
+        <script
+          type="application/ld+json"
+          // JSON.stringify of a fixed, code-defined array — no user input, so
+          // this is not an XSS vector despite the raw HTML injection.
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(JSON_LD) }}
+        />
+      </body>
     </html>
   );
 }
