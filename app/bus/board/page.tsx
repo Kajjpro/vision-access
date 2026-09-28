@@ -18,17 +18,24 @@ import { BoardScreen } from "./BoardScreen";
 
 export const metadata = { title: "Автобус хүлээж байна" };
 
-function readJson<T>(relative: string): T {
-  return JSON.parse(readFileSync(join(process.cwd(), relative), "utf8")) as T;
+// Literal directory segments (rather than a fully dynamic path) let the
+// build's file tracer scope to these two folders instead of the whole
+// project — see the sibling journey/ride/wait pages for the same pattern.
+function readTransitJson<T>(name: string): T {
+  return JSON.parse(readFileSync(join(process.cwd(), "public/transit", name), "utf8")) as T;
+}
+
+function readManifest(): AudioManifest {
+  return JSON.parse(readFileSync(join(process.cwd(), "public/audio/transit/manifest.json"), "utf8"));
 }
 
 export default function BusBoardPage() {
-  const stops = readJson<Stop[]>("public/transit/stops.json");
-  const routeStops = readJson<RouteStops>("public/transit/route-stops.json");
+  const stops = readTransitJson<Stop[]>("stops.json");
+  const routeStops = readTransitJson<RouteStops>("route-stops.json");
 
   let manifest: AudioManifest = {};
   try {
-    manifest = readJson<AudioManifest>("public/audio/transit/manifest.json");
+    manifest = readManifest();
   } catch {
     // Same as the ride screen: the flow still works and says so.
   }

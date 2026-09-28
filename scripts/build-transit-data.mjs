@@ -22,11 +22,11 @@
  * dropping a real stop means a user standing at it is confidently told the name
  * of a different stop hundreds of metres away.
  */
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { mkdir, readdir, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { gzipSync } from "node:zlib";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 
 const TRANSPORT = "https://gateway.hamuga.mn/transport";
 const GRAPHQL = "https://gateway.hamuga.mn/route/routers/default/index/graphql";
