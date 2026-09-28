@@ -1083,6 +1083,7 @@ export function WaitScreen({
       handlers={handlers}
       options={a11yOptions}
       onFocusOption={(i) => { void start(); nav.setIndex(i); }}
+      heading={title}
     >
       <CurrentOption
         title={title}

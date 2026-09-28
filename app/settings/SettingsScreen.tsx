@@ -158,6 +158,7 @@ export function SettingsScreen() {
       handlers={handlers}
       options={a11yOptions}
       onFocusOption={(i) => { void start(); nav.setIndex(i); }}
+      heading="Тохиргоо"
     >
       <p style={{ fontSize: 16, color: "#8a8a8a", margin: "0 0 14px" }}>
         {SETTINGS.guidanceLevel.mn}

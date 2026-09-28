@@ -39,6 +39,7 @@ export function GestureSurface({
   options = [],
   screenReaderMode = false,
   onFocusOption,
+  heading,
 }: {
   handlers: {
     onTouchStart: (e: React.TouchEvent) => void;
@@ -52,6 +53,13 @@ export function GestureSurface({
   screenReaderMode?: boolean;
   /** Called when a screen reader moves focus onto an option. */
   onFocusOption?: (index: number) => void;
+  /**
+   * The screen's name, e.g. matching its <title>. Rendered as a real `<h1>` —
+   * `sr-only` (clipped, not `display:none`/`aria-hidden`) so it stays in the
+   * accessibility tree and in search engines' rendered HTML, without the
+   * visual layer gaining text the audio queue doesn't already speak.
+   */
+  heading?: string;
 }) {
   const surfaceRef = useRef<HTMLDivElement | null>(null);
 
@@ -111,6 +119,8 @@ export function GestureSurface({
         WebkitTapHighlightColor: "transparent",
       }}
     >
+      {heading && <h1 className="sr-only">{heading}</h1>}
+
       {/* Visual layer only. aria-hidden so a screen reader does not read it in
           addition to the focusable buttons below — that would double every
           announcement. */}

@@ -190,6 +190,7 @@ export function HomeGestures() {
       handlers={handlers}
       options={ready ? a11yOptions : []}
       onFocusOption={(i) => { void start(); nav.setIndex(i); }}
+      heading={SCREEN.home.mn}
     >
       <CurrentOption
         title={ready ? current?.value.label ?? SCREEN.home.mn : SCREEN.home.mn}

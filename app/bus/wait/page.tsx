@@ -11,7 +11,11 @@ import { join } from "node:path";
 import type { Route, RouteStops, Stop, StopRoutes } from "@/lib/transit/types";
 import { WaitScreen } from "./WaitScreen";
 
-export const metadata = { title: "Автобус хүлээх" };
+export const metadata = {
+  title: "Автобус хүлээх",
+  description: "Ойролцоох зогсоол, тэдгээрийг үйлчилдэг автобус, ирэх цагийг дуугаар сонсоно.",
+  alternates: { canonical: "/bus/wait" },
+};
 
 // The literal "public/transit" segment (rather than a fully dynamic path)
 // lets the build's file tracer scope to that folder instead of the whole
