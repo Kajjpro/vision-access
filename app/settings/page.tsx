@@ -7,7 +7,11 @@
  */
 import { SettingsScreen } from "./SettingsScreen";
 
-export const metadata = { title: "Тохиргоо" };
+export const metadata = {
+  title: "Тохиргоо",
+  description: "Дуут удирдлагын түвшин, мэдэгдлийн тохиргоог өөрчилнө.",
+  alternates: { canonical: "/settings" },
+};
 
 export default function SettingsPage() {
   return <SettingsScreen />;

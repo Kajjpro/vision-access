@@ -11,16 +11,23 @@ import { join } from "node:path";
 import type { Route, RouteStops, Stop } from "@/lib/transit/types";
 import { JourneyScreen } from "./JourneyScreen";
 
-export const metadata = { title: "Аяллаа хэлэх" };
+export const metadata = {
+  title: "Аяллаа хэлэх",
+  description: "Хаашаа явахаа дуугаараа хэлж, тохирох автобус, чиглэлээ сонгоно.",
+  alternates: { canonical: "/bus/journey" },
+};
 
-function readJson<T>(relative: string): T {
-  return JSON.parse(readFileSync(join(process.cwd(), relative), "utf8")) as T;
+// The literal "public/transit" segment (rather than a fully dynamic path)
+// lets the build's file tracer scope to that folder instead of the whole
+// project — see the sibling board/ride/wait pages for the same pattern.
+function readTransitJson<T>(name: string): T {
+  return JSON.parse(readFileSync(join(process.cwd(), "public/transit", name), "utf8")) as T;
 }
 
 export default function BusJourneyPage() {
-  const stops = readJson<Stop[]>("public/transit/stops.json");
-  const routes = readJson<Route[]>("public/transit/routes.json");
-  const routeStops = readJson<RouteStops>("public/transit/route-stops.json");
+  const stops = readTransitJson<Stop[]>("stops.json");
+  const routes = readTransitJson<Route[]>("routes.json");
+  const routeStops = readTransitJson<RouteStops>("route-stops.json");
 
   return <JourneyScreen stops={stops} routes={routes} routeStops={routeStops} />;
 }

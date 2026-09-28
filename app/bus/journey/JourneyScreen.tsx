@@ -231,6 +231,7 @@ export function JourneyScreen({
       className="fixed inset-0 bg-black text-white p-4 select-none touch-none"
       aria-label="Аяллын дуут оруулга"
     >
+      <h1 className="sr-only">Аяллаа хэлэх</h1>
       <p className="text-2xl">{phase}</p>
       <p className="text-lg opacity-70">
         {journey.origin?.name ?? "—"} → {journey.destination?.name ?? "—"}

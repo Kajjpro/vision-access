@@ -65,3 +65,4 @@ certificates
 # belong in history the way public/wasm and public/models (which have no such
 # script) unavoidably do.
 /public/tesseract
+.env*.local

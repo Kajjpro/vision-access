@@ -48,7 +48,7 @@ function sloppySwipe(
   const steps = 7;
   let t = 1000;
 
-  const at = (f: number, i: number): Sample[] =>
+  const at = (f: number): Sample[] =>
     Array.from({ length: fingers }, (_, k) => ({
       id: k,
       // Curvature: the path bows off-axis and comes back, as a real drag does.
@@ -57,14 +57,14 @@ function sloppySwipe(
       t,
     }));
 
-  events.push({ phase: "start", touches: at(0, 0), t });
+  events.push({ phase: "start", touches: at(0), t });
   for (let i = 1; i < steps; i++) {
     // Irregular sampling — real touch streams are not evenly spaced.
     t += (durationMs / steps) * (0.5 + rand());
-    events.push({ phase: "move", touches: at(i / steps, i), t });
+    events.push({ phase: "move", touches: at(i / steps), t });
   }
   t += durationMs / steps;
-  events.push({ phase: "end", touches: at(1, steps), t });
+  events.push({ phase: "end", touches: at(1), t });
   return events;
 }
 

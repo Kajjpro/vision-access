@@ -144,7 +144,7 @@ async function main() {
   }));
 
   // What is already cached costs nothing.
-  const pending = [...jobs.entries()].filter(([h, j]) => !existsSync(join(root, CACHE, `${h}.mp3`)));
+  const pending = [...jobs.entries()].filter(([h]) => !existsSync(join(root, CACHE, `${h}.mp3`)));
   const chars = pending.reduce((a, [, j]) => a + j.text.length, 0);
 
   console.log(`Listening set:`);
